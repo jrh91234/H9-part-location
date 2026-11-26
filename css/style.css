@@ -217,3 +217,19 @@ a.btn { text-decoration: none; color: inherit; display: block; }
 .ck-bar .half { background: #9fd9b4; }
 .rc.ck-half { background: #9fd9b4; }
 .ck-row.half { border-left-color: #9fd9b4; }
+/* สรุปจำนวนช่อง / Part */
+.sum { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px; margin-bottom: 12px; }
+.sum summary { list-style: none; cursor: pointer; }
+.sum summary::-webkit-details-marker { display: none; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.tile { background: var(--blue-soft); color: var(--blue); border-radius: 10px; padding: 8px 4px; text-align: center; }
+.tile b { display: block; font-size: 24px; line-height: 1.1; }
+.tile span { font-size: 12px; }
+.tile.warn { background: var(--amber-soft); color: var(--amber); }
+.sum-more { text-align: center; font-size: 13px; color: var(--blue); margin-top: 8px; font-weight: 600; }
+.sum[open] .sum-more { color: var(--muted); }
+.sum h4 { margin: 12px 2px 6px; font-size: 14px; }
+.sum table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.sum th, .sum td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: right; }
+.sum th:first-child, .sum td:first-child { text-align: left; }
+.sum th { color: var(--muted); font-weight: 600; font-size: 12px; }

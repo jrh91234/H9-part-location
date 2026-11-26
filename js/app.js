@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261126-0808'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261126-0914'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -330,18 +330,54 @@ function renderMap() {
       : '<div class="slot empty"><div class="no">' + esc(loc.replace(/^H9-/, '')) + '</div><div class="n">ว่าง</div></div>';
   }
   var waiting = PARTS.filter(function (p) { return !p.loc; }).length;
-  $('main').innerHTML =
+  $('main').innerHTML = summaryHtml() +
     '<div class="legend"><span><i style="background:var(--l4)"></i>Line 4</span><span><i style="background:var(--l5)"></i>Line 5</span><span><i style="background:var(--l1)"></i>Line 1</span>' +
       '<span>· แตะแถวในผังเพื่อเลือกชั้น</span></div>' +
     rackHtml(S.mark, true) +
     '<div class="lv-pick">' + LV_LIST.map(function (l) { return '<button data-pl="' + l + '" class="' + (l === lv ? 'active' : '') + '">L' + l + '</button>'; }).join('') + '</div>' +
     '<div class="count"><span>ชั้น L' + lv + ' · ' + n + ' ช่อง</span>' + (waiting ? '<a href="#" id="waitLink">รอจัดพื้นที่ ' + waiting + ' รายการ ›</a>' : '') + '</div>' +
     '<div class="slots">' + slots + '</div>';
-  if ($('waitLink')) $('waitLink').onclick = function (e) { e.preventDefault(); S.q = 'รอจัดพื้นที่'; S.scan = null; S.line = 'all'; S.grp = 'all'; setTab('search'); };
+  function showWaiting(e) { e.preventDefault(); S.q = 'รอจัดพื้นที่'; S.scan = null; S.line = 'all'; S.grp = 'all'; setTab('search'); }
+  if ($('waitLink')) $('waitLink').onclick = showWaiting;
+  if ($('waitTile')) $('waitTile').onclick = showWaiting;
+  if ($('sumBox')) $('sumBox').ontoggle = function () { store('h9pl_sum', this.open ? '1' : '0'); };
   function pick(l) { S.mapLv = l; renderMap(); }
   Array.prototype.forEach.call(document.querySelectorAll('[data-pl]'), function (b) { b.onclick = function () { pick(+b.getAttribute('data-pl')); }; });
   Array.prototype.forEach.call(document.querySelectorAll('[data-lv]'), function (b) { b.onclick = function () { pick(+b.getAttribute('data-lv')); }; });
   Array.prototype.forEach.call(document.querySelectorAll('.slot[data-i]'), function (b) { b.onclick = function () { showDetail(PARTS[+b.getAttribute('data-i')]); }; });
+}
+// สรุป: จำนวนช่อง / Part ทั้งหมด และแยกตาม Line · ชั้น · กลุ่ม (คำนวณจาก js/data.js ทุกครั้ง)
+function summaryHtml() {
+  var slots = 0, used = 0, withLoc = 0, waiting = 0, byLine = {}, byGrp = {};
+  LV_LIST.forEach(function (l) { slots += LEVELS[l]; });
+  PARTS.forEach(function (p) {
+    var k = p.line, x = byLine[k] = byLine[k] || [0, 0], g = byGrp[p.grp] = byGrp[p.grp] || [0, 0];
+    x[0]++; g[0]++;
+    if (p.loc) { withLoc++; x[1]++; g[1]++; } else waiting++;
+  });
+  used = Object.keys(byLoc).length;
+  function tile(n, label, cls, id) {
+    return '<div class="tile' + (cls ? ' ' + cls : '') + '"' + (id ? ' id="' + id + '" role="button"' : '') + '><b>' + n + '</b><span>' + label + '</span></div>';
+  }
+  function row(cells, head) { var t = head ? 'th' : 'td'; return '<tr>' + cells.map(function (c) { return '<' + t + '>' + c + '</' + t + '>'; }).join('') + '</tr>'; }
+  var lines = Object.keys(byLine).sort(function (a, b) { return LINES.indexOf(+a) - LINES.indexOf(+b); });
+  var lvRows = LV_LIST.map(function (l) {
+    var u = 0; for (var c = 1; c <= LEVELS[l]; c++) if (byLoc['H9-L' + l + '-' + ('0' + c).slice(-2)]) u++;
+    return row(['L' + l, LEVELS[l], u, LEVELS[l] - u]);
+  });
+  var open = store('h9pl_sum') === '1';
+  return '<details class="sum" id="sumBox"' + (open ? ' open' : '') + '><summary>' +
+      '<div class="tiles">' + tile(slots, 'ช่องทั้งหมด') + tile(used, 'ช่องที่มี Part') + tile(slots - used, 'ช่องว่าง', slots - used ? 'warn' : '') +
+        tile(PARTS.length, 'Part ทั้งหมด') + tile(withLoc, 'มี Location') + tile(waiting, 'รอจัดพื้นที่ ›', waiting ? 'warn' : '', 'waitTile') + '</div>' +
+      '<div class="sum-more">📊 ดูสรุปแยก Line / ชั้น / กลุ่ม</div></summary>' +
+    '<h4>แยกตาม Line ผลิต</h4><table>' + row(['Line', 'Part', 'มี Location', 'รอจัดพื้นที่'], true) +
+      lines.map(function (k) { return row(['<span class="tag ln' + esc(k) + '">Line ' + esc(k) + '</span>', byLine[k][0], byLine[k][1], byLine[k][0] - byLine[k][1]]); }).join('') +
+      row(['<b>รวม</b>', '<b>' + PARTS.length + '</b>', '<b>' + withLoc + '</b>', '<b>' + waiting + '</b>']) + '</table>' +
+    '<h4>แยกตามชั้น</h4><table>' + row(['ชั้น', 'ช่อง', 'มี Part', 'ว่าง'], true) + lvRows.join('') +
+      row(['<b>รวม</b>', '<b>' + slots + '</b>', '<b>' + used + '</b>', '<b>' + (slots - used) + '</b>']) + '</table>' +
+    '<h4>แยกตามกลุ่ม Part</h4><table>' + row(['กลุ่ม', 'Part', 'มี Location', 'รอจัดพื้นที่'], true) +
+      Object.keys(byGrp).sort().map(function (g) { return row([esc(g), byGrp[g][0], byGrp[g][1], byGrp[g][0] - byGrp[g][1]]); }).join('') + '</table>' +
+    '</details>';
 }
 function scrollToSlot() {
   setTimeout(function () { var el = S.mark && $('s-' + S.mark); if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 60);
