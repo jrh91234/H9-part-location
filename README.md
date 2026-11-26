@@ -101,7 +101,7 @@ git add js/data.js index.html js/app.js version.json && git commit -m "อัป
 2. เปิด **ส่วนขยาย → Apps Script** → วางโค้ด `appscript/code.gs` และเปิด "Show appsscript.json" (Project Settings) แล้ววางเนื้อหา `appscript/appsscript.json`
 3. กลับไปที่ชีตแล้วรีเฟรช จะมีเมนู **H9 Location** → กด **ตั้งค่าเริ่มต้น** → อนุญาตสิทธิ์ (ขั้นสูง → ไปที่ … → อนุญาต) ระบบจะสร้างชีต `Assignments` และ `Log`
 4. Apps Script → **Deploy → New deployment → Web app**: Execute as **Me**, Who has access **Anyone** → คัดลอก URL `/exec`
-5. นำ URL ไปใส่ใน `js/config.js` (`API_URL`) แล้ว commit (หรือส่ง URL ให้ Claude ใส่ให้) — ระหว่างนี้ใส่ชั่วคราวได้ที่ ⚙ ตั้งค่า → ขั้นสูง
+5. ไม่ต้องใส่ URL เอง: GitHub Actions จะเขียน URL `/exec` ของ deployment (จาก secret `APPS_SCRIPT_DEPLOYMENT_ID`) ลง `js/config.js` ให้อัตโนมัติหลัง deploy
 6. Script Properties (ไม่บังคับ): `ADMIN_PIN` = รหัสเข้าเมนูตั้งค่า (ค่าเริ่มต้น `1234`) · `SPREADSHEET_ID` = ใช้เมื่อ script ไม่ได้ผูกกับชีต
 
 ### 2. GitHub Actions (deploy Apps Script อัตโนมัติ)

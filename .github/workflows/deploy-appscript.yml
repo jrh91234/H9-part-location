@@ -16,6 +16,8 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # ให้ commit URL ของ Web App ลง js/config.js ได้
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -67,3 +69,22 @@ jobs:
           clasp push --force
           clasp deploy --deploymentId "$APPS_SCRIPT_DEPLOYMENT_ID" \
             --description "GitHub Actions ${GITHUB_SHA::7}"
+
+      - name: Embed Web App URL in js/config.js
+        # ใส่ URL /exec ของ deployment ที่ตั้งไว้ใน secret ลงหน้าเว็บให้อัตโนมัติ (ทุกเครื่องใช้ Google Sheet เดียวกัน)
+        env:
+          APPS_SCRIPT_DEPLOYMENT_ID: ${{ secrets.APPS_SCRIPT_DEPLOYMENT_ID }}
+        run: |
+          URL="https://script.google.com/macros/s/${APPS_SCRIPT_DEPLOYMENT_ID}/exec"
+          if grep -qF "$URL" js/config.js; then
+            echo "js/config.js มี URL นี้อยู่แล้ว"
+            exit 0
+          fi
+          git pull --rebase --quiet origin main
+          sed -i "s|API_URL: '[^']*'|API_URL: '${URL}'|" js/config.js
+          python3 tools/bump-version.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add js/config.js index.html js/app.js version.json
+          git commit -m "ใส่ URL Apps Script ใน js/config.js (อัตโนมัติจาก GitHub Actions)"
+          git push origin HEAD:main
