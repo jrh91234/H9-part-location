@@ -140,3 +140,48 @@ mark { background: #ffe46b; color: inherit; border-radius: 3px; padding: 0 1px; 
 .qr-box img { width: min(78vw, 320px); height: auto; border: 1px solid var(--line); border-radius: 12px; }
 .qr-url { font-size: 13px; color: var(--blue); background: var(--blue-soft); border-radius: 8px; padding: 6px 10px; word-break: break-all; text-align: center; }
 a.btn { text-decoration: none; color: inherit; display: block; }
+
+/* ไล่เช็ค */
+.ck-prog { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.ck-bar { display: flex; height: 10px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.ck-bar i { display: block; height: 100%; }
+.ck-bar .ok { background: var(--green); } .ck-bar .ng { background: var(--red); } .ck-bar .empty { background: #f2b544; }
+.ck-nums { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; margin-top: 6px; color: var(--muted); }
+.ck-nums b { color: var(--ink); }
+.ck-cur { text-align: center; border-radius: 14px; padding: 10px; margin-bottom: 10px; background: var(--blue-soft); color: var(--blue); border: 2px solid currentColor; }
+.ck-cur.ln4 { background: var(--l4-soft); color: var(--l4); } .ck-cur.ln5 { background: var(--l5-soft); color: var(--l5); } .ck-cur.ln1 { background: var(--l1-soft); color: var(--l1); }
+.ck-cur.none { background: var(--amber-soft); color: var(--amber); border-style: dashed; }
+.ck-cur .lbl { font-size: 13px; }
+.ck-cur .big { font-size: 36px; font-weight: 700; line-height: 1.15; letter-spacing: 1px; }
+.ck-cur .sub { font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
+.ck-search { position: static; padding-top: 0; }
+.ck-res { border-radius: 14px; padding: 12px; margin-bottom: 10px; font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
+.ck-res .h { font-size: 22px; font-weight: 700; margin-bottom: 2px; }
+.ck-res.idle { background: var(--blue-soft); color: var(--blue); }
+.ck-res.loc { background: var(--blue-soft); color: var(--blue); }
+.ck-res.ok { background: var(--green); color: #fff; }
+.ck-res.err { background: var(--red); color: #fff; }
+.ck-res.warn { background: var(--amber-soft); color: var(--amber); }
+.ck-res hr { border: 0; border-top: 1px solid rgba(255,255,255,.35); margin: 6px 0; }
+.ck-res .exp { margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(255,255,255,.5); }
+.ck-act { margin: 0 0 12px; }
+.ck-chip { display: inline-block; font-size: 12px; font-weight: 700; border-radius: 6px; padding: 0 6px; }
+.ck-chip.ok { background: var(--green-soft); color: var(--green); }
+.ck-chip.ng, .ck-chip.unk { background: var(--red-soft); color: var(--red); }
+.ck-chip.empty { background: var(--amber-soft); color: var(--amber); }
+.rc.ck-ok { background: var(--green); } .rc.ck-ng, .rc.ck-unk { background: var(--red); } .rc.ck-empty { background: #f2b544; }
+.rack.ck .rc.on { background: var(--blue); box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--blue); animation: none; }
+.rack.ck .rc { cursor: pointer; }
+.ck-row { display: flex; gap: 10px; width: 100%; text-align: left; background: var(--card); border: 1px solid var(--line); border-left: 6px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-bottom: 6px; }
+.ck-row.ok { border-left-color: var(--green); } .ck-row.ng, .ck-row.unk { border-left-color: var(--red); } .ck-row.empty { border-left-color: #f2b544; }
+.ck-row .l { flex: none; width: 64px; font-weight: 700; color: var(--blue); font-size: 17px; }
+.ck-row .m { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ck-row .bad { color: var(--red); }
+/* กล้องโหมดต่อเนื่อง */
+.cam-wrap.short { aspect-ratio: 4 / 3; max-height: 38vh; }
+.cam-flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+.cam-flash.ok { background: rgba(24,131,74,.55); } .cam-flash.err { background: rgba(198,47,47,.6); } .cam-flash.loc { background: rgba(31,95,191,.5); }
+.cam-flash.on { animation: flash .6s ease-out; }
+@keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
+#camStatus { margin-top: 10px; }
+#camStatus .ck-cur .big { font-size: 28px; }

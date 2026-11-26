@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261126-0721'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261126-0733'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -173,8 +173,9 @@ function render() {
     '<div class="top"><div class="brand">📍 H9 Part Location <span class="ver">v' + esc(APP_VERSION) + '</span></div>' +
       '<button class="chip" id="appQr" aria-label="QR ลิงก์เข้าหน้าเว็บ">🔗 QR แอป</button></div>' +
     '<div class="tabs">' +
-      '<button data-tab="search" class="' + (S.tab === 'search' ? 'active' : '') + '">🔎 ค้นหา / สแกน</button>' +
-      '<button data-tab="map" class="' + (S.tab === 'map' ? 'active' : '') + '">🗂 ผังชั้นวาง</button>' +
+      '<button data-tab="search" class="' + (S.tab === 'search' ? 'active' : '') + '">🔎 ค้นหา</button>' +
+      '<button data-tab="check" class="' + (S.tab === 'check' ? 'active' : '') + '">✅ ไล่เช็ค</button>' +
+      '<button data-tab="map" class="' + (S.tab === 'map' ? 'active' : '') + '">🗂 ผัง</button>' +
     '</div><main id="main"></main>';
   Array.prototype.forEach.call(document.querySelectorAll('[data-tab]'), function (b) {
     b.onclick = function () { setTab(b.getAttribute('data-tab')); };
@@ -182,7 +183,7 @@ function render() {
   $('appQr').onclick = function () {
     showQr(APP_URL, 'H9 Part Location', 'สแกน QR นี้ด้วยกล้องมือถือเพื่อเปิดแอปค้นหา Part ↔ Location');
   };
-  if (S.tab === 'search') renderSearch(); else renderMap();
+  if (S.tab === 'search') renderSearch(); else if (S.tab === 'check') renderCheck(); else renderMap();
 }
 function setTab(t) { S.tab = t; render(); window.scrollTo(0, 0); }
 
@@ -344,6 +345,206 @@ function renderMap() {
 }
 function scrollToSlot() {
   setTimeout(function () { var el = S.mark && $('s-' + S.mark); if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 60);
+}
+
+// ======================= ไล่เช็ค Part ↔ Location =======================
+// สแกนป้าย Location → สแกนป้าย Part ในช่องนั้น → ตรง ✅ / ไม่ตรง ❌ · ผลล่าสุดของแต่ละช่องเก็บในเครื่อง (localStorage)
+var CK = (function () {
+  try { var d = JSON.parse(store('h9pl_check') || 'null'); if (d && d.rec) return d; } catch (e) { /* ข้อมูลเสีย → เริ่มใหม่ */ }
+  return { cur: '', rec: {}, last: null, by: '' };
+})();
+var ALL_LOCS = PARTS.filter(function (p) { return p.loc; }).sort(locOrder).map(function (p) { return p.loc; });
+var CK_LBL = { ok: '✅ ตรง', ng: '❌ ไม่ตรง', unk: '❓ ไม่พบในรายการ', empty: '⬜ ช่องว่าง' };
+function saveCheck() { store('h9pl_check', JSON.stringify(CK)); }
+function locExists(l) { var m = l && l.match(/^H9-L(\d+)-(\d+)$/); return !!(m && LEVELS[+m[1]] && +m[2] <= LEVELS[+m[1]]); }
+// หา Location จากข้อความที่สแกน (ป้าย Location / QR ลิงก์ #q= / คำใดคำหนึ่ง)
+function scanLoc(text) {
+  var t = String(text || ''), lq = t.match(/#q=([^&\s]+)/);
+  if (lq) { try { t = decodeURIComponent(lq[1]); } catch (e) { t = lq[1]; } }
+  var l = normLoc(t); if (locExists(l)) return l;
+  var toks = t.toUpperCase().split(/[^A-Z0-9\-]+/);
+  for (var i = 0; i < toks.length; i++) { l = normLoc(toks[i]); if (locExists(l)) return l; }
+  return '';
+}
+function nextLoc(loc) {
+  var i = ALL_LOCS.indexOf(loc);
+  return i >= 0 && i < ALL_LOCS.length - 1 ? ALL_LOCS[i + 1] : '';
+}
+function ckStats() {
+  var st = { ok: 0, ng: 0, unk: 0, empty: 0, done: 0 };
+  ALL_LOCS.forEach(function (l) { var r = CK.rec[l]; if (r) { st[r.st]++; st.done++; } });
+  return st;
+}
+function partTxt(p) { return p.code + ' · ' + p.name; }
+
+// ผลการสแกน 1 ครั้ง → คืน class สำหรับไฟกระพริบในกล้อง (ok / err / loc)
+function checkScan(text) {
+  text = String(text || '').trim(); if (!text) return '';
+  var loc = scanLoc(text);
+  if (loc) {
+    CK.cur = loc; CK.last = { type: 'loc', loc: loc }; saveCheck(); beep(true);
+    return 'loc';
+  }
+  if (!CK.cur) { CK.last = { type: 'need', text: text }; saveCheck(); beep(false); return 'err'; }
+  var r = resolveScan(text), exp = byLoc[CK.cur], st;
+  if (!r) st = 'unk';
+  else if (exp && r.parts.indexOf(exp) >= 0) st = 'ok';
+  else st = 'ng';
+  var rec = { st: st, text: text.slice(0, 120), at: Date.now(),
+    got: r ? r.parts.map(function (p) { return p.i; }) : [] };
+  CK.rec[CK.cur] = rec;
+  CK.last = { type: 'res', loc: CK.cur };
+  saveCheck(); beep(st === 'ok');
+  return st === 'ok' ? 'ok' : 'err';
+}
+function markEmpty() {
+  if (!CK.cur) return;
+  CK.rec[CK.cur] = { st: 'empty', text: '', at: Date.now(), got: [] };
+  CK.last = { type: 'res', loc: CK.cur }; saveCheck();
+}
+
+function ckCurHtml() {
+  if (!CK.cur) return '<div class="ck-cur none"><div class="lbl">Location ที่กำลังเช็ค</div><div class="big">—</div>' +
+    '<div class="sub">สแกนป้าย Location หรือพิมพ์ เช่น <b>L3-05</b></div></div>';
+  var exp = byLoc[CK.cur], r = CK.rec[CK.cur];
+  return '<div class="ck-cur ' + (exp ? lnCls(exp) : '') + '"><div class="lbl">Location ที่กำลังเช็ค' +
+      (r ? ' · <span class="ck-chip ' + r.st + '">' + CK_LBL[r.st] + '</span>' : '') + '</div>' +
+    '<div class="big">' + esc(CK.cur) + '</div>' +
+    '<div class="sub">ควรเป็น: ' + (exp ? '<b>' + esc(exp.code) + '</b> · ' + esc(exp.name) : '<b>ไม่มี Part ในรายการ</b>') + '</div></div>';
+}
+function ckLastHtml() {
+  var L = CK.last;
+  if (!L) return '<div class="ck-res idle">① สแกนป้าย <b>Location</b> → ② สแกนป้าย <b>Part</b> ในช่องนั้น</div>';
+  if (L.type === 'need') return '<div class="ck-res err"><div class="h">⚠️ ยังไม่ได้เลือก Location</div>สแกนป้าย Location ก่อน แล้วค่อยสแกน Part</div>';
+  if (L.type === 'loc') return '<div class="ck-res loc"><div class="h">📍 ' + esc(L.loc) + '</div>สแกนป้าย Part ที่อยู่ในช่องนี้ได้เลย</div>';
+  var r = CK.rec[L.loc], exp = byLoc[L.loc]; if (!r) return '';
+  if (r.st === 'empty') return '<div class="ck-res warn"><div class="h">⬜ บันทึกว่าช่องว่าง</div>' + esc(L.loc) + (exp ? ' (ควรมี ' + esc(exp.code) + ')' : '') + '</div>';
+  if (r.st === 'ok') return '<div class="ck-res ok"><div class="h">✅ ตรง Location</div>' + esc(L.loc) + ' · ' + esc(exp ? partTxt(exp) : '') + '</div>';
+  var got = r.got.map(function (i) { return PARTS[i]; });
+  return '<div class="ck-res err"><div class="h">' + (r.st === 'unk' ? '❓ ไม่พบ Part นี้ในรายการ' : '❌ ไม่ตรง Location') + '</div>' +
+    (got.length ? got.map(function (p) {
+      return 'สแกนได้ <b>' + esc(p.code) + '</b> · ' + esc(p.name) + '<br>→ ควรอยู่ที่ <b>' + esc(p.loc || 'รอจัดพื้นที่') + '</b>';
+    }).join('<hr>') : 'สแกนได้: <b>' + esc(r.text) + '</b>') +
+    '<div class="exp">ช่อง ' + esc(L.loc) + ' ควรเป็น: ' + (exp ? '<b>' + esc(exp.code) + '</b> · ' + esc(exp.name) : 'ไม่มี Part ในรายการ') + '</div></div>';
+}
+function ckCamStatus() {
+  var nx = nextLoc(CK.cur), st = ckStats();
+  return ckCurHtml() + ckLastHtml() +
+    '<div class="center small muted">เช็คแล้ว ' + st.done + '/' + ALL_LOCS.length + ' · ✅ ' + st.ok + ' · ❌ ' + (st.ng + st.unk) + ' · ⬜ ' + st.empty + '</div>' +
+    (CK.cur ? '<div class="actions"><button class="btn" id="ckEmptyC">⬜ ช่องว่าง</button>' +
+      (nx ? '<button class="btn" id="ckNextC">➡ ' + esc(nx.replace(/^H9-/, '')) + '</button>' : '') + '</div>' : '');
+}
+function bindCamStatus() {
+  if ($('ckEmptyC')) $('ckEmptyC').onclick = function () { markEmpty(); refreshCam(); };
+  if ($('ckNextC')) $('ckNextC').onclick = function () { CK.cur = nextLoc(CK.cur); CK.last = { type: 'loc', loc: CK.cur }; saveCheck(); refreshCam(); };
+}
+function refreshCam() { if ($('camStatus')) { $('camStatus').innerHTML = ckCamStatus(); bindCamStatus(); } }
+
+function ckRackHtml() {
+  var rows = LV_LIST.map(function (lv) {
+    var cells = '';
+    for (var c = 1; c <= MAX_COL; c++) {
+      var loc = 'H9-L' + lv + '-' + ('0' + c).slice(-2), r = CK.rec[loc];
+      var cls = c > LEVELS[lv] ? 'void' : r ? 'ck-' + r.st : byLoc[loc] ? '' : 'void';
+      cells += '<div class="rc ' + cls + (loc === CK.cur ? ' on' : '') + '"' + (cls === 'void' ? '' : ' data-ck="' + loc + '"') + '></div>';
+    }
+    return '<div class="rack-row"><div class="rack-lv">L' + lv + '</div><div class="rack-cells">' + cells + '</div></div>';
+  }).join('');
+  return '<div class="rack ck">' + rows + '<div class="rack-axis"><div></div><div><span>01</span><span>10</span><span>20</span><span>30</span><span>' + MAX_COL + '</span></div></div></div>';
+}
+
+function renderCheck() {
+  var st = ckStats(), pct = ALL_LOCS.length ? Math.round(st.done * 100 / ALL_LOCS.length) : 0, nx = nextLoc(CK.cur);
+  var f = S.ckf || 'ng';
+  var list = f === 'todo'
+    ? ALL_LOCS.filter(function (l) { return !CK.rec[l]; })
+    : Object.keys(CK.rec).filter(function (l) { var r = CK.rec[l]; return f === 'all' || r.st === 'ng' || r.st === 'unk' || (f === 'ng' && r.st === 'empty'); })
+        .sort(function (a, b) { return CK.rec[b].at - CK.rec[a].at; });
+  $('main').innerHTML =
+    '<div class="ck-prog"><div class="ck-bar"><i class="ok" style="width:' + (st.ok * 100 / (ALL_LOCS.length || 1)) + '%"></i>' +
+      '<i class="ng" style="width:' + ((st.ng + st.unk) * 100 / (ALL_LOCS.length || 1)) + '%"></i>' +
+      '<i class="empty" style="width:' + (st.empty * 100 / (ALL_LOCS.length || 1)) + '%"></i></div>' +
+      '<div class="ck-nums"><span>เช็คแล้ว <b>' + st.done + '</b>/' + ALL_LOCS.length + ' (' + pct + '%)</span>' +
+      '<span>✅ ' + st.ok + '</span><span>❌ ' + (st.ng + st.unk) + '</span><span>⬜ ' + st.empty + '</span></div></div>' +
+    ckCurHtml() +
+    '<div class="search ck-search"><div class="search-wrap"><input id="ckq" type="text" enterkeyhint="go" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ยิงสแกน / พิมพ์ แล้ว Enter"></div>' +
+      '<button class="scan-btn" id="ckCam">📷 สแกน</button></div>' +
+    ckLastHtml() +
+    (CK.cur ? '<div class="actions ck-act"><button class="btn" id="ckEmpty">⬜ ช่องว่าง</button>' +
+      (nx ? '<button class="btn primary" id="ckNext">➡ ช่องถัดไป ' + esc(nx.replace(/^H9-/, '')) + '</button>' : '') + '</div>' : '') +
+    '<div class="legend"><span><i style="background:var(--green)"></i>ตรง</span><span><i style="background:var(--red)"></i>ไม่ตรง</span>' +
+      '<span><i style="background:#f2b544"></i>ว่าง</span><span><i style="background:var(--line)"></i>ยังไม่เช็ค</span><span>· แตะช่องเพื่อเลือก</span></div>' +
+    ckRackHtml() +
+    '<div class="filters">' +
+      '<button class="fchip' + (f === 'ng' ? ' active' : '') + '" data-ckf="ng">❌ ไม่ตรง / ว่าง</button>' +
+      '<button class="fchip' + (f === 'all' ? ' active' : '') + '" data-ckf="all">ผลทั้งหมด ' + st.done + '</button>' +
+      '<button class="fchip' + (f === 'todo' ? ' active' : '') + '" data-ckf="todo">ยังไม่เช็ค ' + (ALL_LOCS.length - st.done) + '</button></div>' +
+    '<div id="ckList">' + (list.length ? list.slice(0, 150).map(ckRow).join('') : '<div class="msg idle">ไม่มีรายการ</div>') +
+      (list.length > 150 ? '<div class="count">แสดง 150 รายการแรก จาก ' + list.length + '</div>' : '') + '</div>' +
+    '<div class="actions"><button class="btn" id="ckCsv">⬇️ Export (Excel/CSV)</button><button class="btn" id="ckReset">🗑 เริ่มเช็คใหม่</button></div>';
+
+  var q = $('ckq');
+  q.onkeydown = function (e) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault(); var v = q.value.trim(); if (!v) return;
+    checkScan(v); renderCheck(); if ($('ckq')) $('ckq').focus();
+  };
+  $('ckCam').onclick = function () {
+    openCameraScanner(null, { title: 'ไล่เช็ค (สแกนต่อเนื่อง)', status: ckCamStatus,
+      onEach: function (t) { var c = checkScan(t); setTimeout(bindCamStatus, 0); return c; } });
+    onModalClose = (function (stopCam) { return function () { stopCam && stopCam(); renderCheck(); }; })(onModalClose);
+    bindCamStatus();
+  };
+  if ($('ckEmpty')) $('ckEmpty').onclick = function () { markEmpty(); renderCheck(); };
+  if ($('ckNext')) $('ckNext').onclick = function () { CK.cur = nx; CK.last = { type: 'loc', loc: nx }; saveCheck(); renderCheck(); };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-ck]'), function (b) {
+    b.onclick = function () { CK.cur = b.getAttribute('data-ck'); CK.last = { type: 'loc', loc: CK.cur }; saveCheck(); renderCheck(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-ckf]'), function (b) {
+    b.onclick = function () { S.ckf = b.getAttribute('data-ckf'); renderCheck(); };
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-ckrow]'), function (b) {
+    b.onclick = function () { CK.cur = b.getAttribute('data-ckrow'); CK.last = CK.rec[CK.cur] ? { type: 'res', loc: CK.cur } : { type: 'loc', loc: CK.cur }; saveCheck(); renderCheck(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  });
+  $('ckCsv').onclick = exportCheck;
+  $('ckReset').onclick = function () {
+    if (!confirm('ล้างผลการเช็คทั้งหมดในเครื่องนี้ แล้วเริ่มใหม่?\n(แนะนำให้ Export เก็บไว้ก่อน)')) return;
+    CK = { cur: '', rec: {}, last: null, by: CK.by }; saveCheck(); renderCheck();
+  };
+}
+function fmtTime(t) {
+  var d = new Date(t), z = function (n) { return ('0' + n).slice(-2); };
+  return z(d.getDate()) + '/' + z(d.getMonth() + 1) + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
+}
+function ckRow(loc) {
+  var r = CK.rec[loc], exp = byLoc[loc];
+  var got = r ? r.got.map(function (i) { return PARTS[i]; }) : [];
+  return '<button class="ck-row ' + (r ? r.st : 'todo') + '" data-ckrow="' + esc(loc) + '">' +
+    '<div class="l">' + esc(loc.replace(/^H9-/, '')) + '</div><div class="m">' +
+    '<div>' + (r ? '<span class="ck-chip ' + r.st + '">' + CK_LBL[r.st] + '</span> <span class="muted small">' + fmtTime(r.at) + '</span>' : '<span class="muted">ยังไม่เช็ค</span>') + '</div>' +
+    '<div class="small">ควรเป็น: <b>' + esc(exp ? exp.code : '-') + '</b> ' + esc(exp ? exp.name : '') + '</div>' +
+    (r && (r.st === 'ng' || r.st === 'unk') ? '<div class="small bad">สแกนได้: ' + (got.length ? got.map(function (p) {
+      return '<b>' + esc(p.code) + '</b> (ควรอยู่ ' + esc(p.loc || 'รอจัดพื้นที่') + ')';
+    }).join(', ') : esc(r.text)) + '</div>' : '') +
+    '</div></button>';
+}
+function exportCheck() {
+  var head = ['Location', 'ผลการเช็ค', 'Part ที่ควรอยู่ (Code)', 'Spec', 'ชื่อ Part', 'Line', 'สแกนได้ (Code)', 'ชื่อที่สแกนได้', 'Part ที่สแกนได้ควรอยู่ที่', 'ข้อความที่สแกน', 'เวลา'];
+  var rows = ALL_LOCS.concat(Object.keys(CK.rec).filter(function (l) { return ALL_LOCS.indexOf(l) < 0; })).map(function (loc) {
+    var r = CK.rec[loc], exp = byLoc[loc], got = r ? r.got.map(function (i) { return PARTS[i]; }) : [];
+    return [loc, r ? CK_LBL[r.st].replace(/^\S+\s/, '') : 'ยังไม่เช็ค', exp ? exp.code : '', exp ? exp.spec : '', exp ? exp.name : '', exp ? exp.line : '',
+      got.map(function (p) { return p.code; }).join(' / '), got.map(function (p) { return p.name; }).join(' / '),
+      got.map(function (p) { return p.loc || 'รอจัดพื้นที่'; }).join(' / '), r ? r.text : '', r ? new Date(r.at).toLocaleString('th-TH') : ''];
+  });
+  var csv = '﻿' + [head].concat(rows).map(function (row) {
+    return row.map(function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(',');
+  }).join('\r\n');
+  var d = new Date(), z = function (n) { return ('0' + n).slice(-2); };
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'H9-check-' + d.getFullYear() + z(d.getMonth() + 1) + z(d.getDate()) + '-' + z(d.getHours()) + z(d.getMinutes()) + '.csv';
+  document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  toast('Export ' + rows.length + ' แถว');
 }
 
 // ======================= QR ลิงก์เข้าหน้าเว็บ =======================
@@ -512,12 +713,16 @@ function grabFrame(src, full, scale) {
   return camCanvas;
 }
 
-function openCameraScanner(onResult) {
+// opts.onEach(text): โหมดต่อเนื่อง (ไม่ปิดกล้องหลังอ่านได้) · opts.status(): HTML แสดงใต้กล้อง
+function openCameraScanner(onResult, opts) {
+  opts = opts || {};
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     toast('เบราว์เซอร์นี้เปิดกล้องไม่ได้ (ต้องเปิดผ่าน https)', 3500); return;
   }
-  openModal('<h3>📷 สแกน QR / บาร์โค้ด</h3>' +
-    '<div class="cam-wrap" id="camWrap"><video id="camV" playsinline muted autoplay></video><div class="cam-frame" id="camFrame"></div></div>' +
+  openModal('<h3>📷 ' + esc(opts.title || 'สแกน QR / บาร์โค้ด') + '</h3>' +
+    '<div class="cam-wrap' + (opts.onEach ? ' short' : '') + '" id="camWrap"><video id="camV" playsinline muted autoplay></video><div class="cam-frame" id="camFrame"></div>' +
+      '<div class="cam-flash" id="camFlash"></div></div>' +
+    (opts.status ? '<div id="camStatus">' + opts.status() + '</div>' : '') +
     '<div class="cam-tools" id="camTools"></div>' +
     '<p class="center small" id="camHint">กำลังเปิดกล้อง…</p>' +
     '<div class="actions"><button class="btn" id="camClose">ปิด</button></div>');
@@ -554,6 +759,7 @@ function openCameraScanner(onResult) {
         e.detect(src).then(function (text) {
           e.fails = 0;
           if (done) return;
+          if (text && opts.onEach) { onCont(text); return; }
           if (text) { closeModal(); onResult(text); return; }
           next();
         }, function () {
@@ -561,6 +767,17 @@ function openCameraScanner(onResult) {
           if (e.fails >= 5 && engines.length > 1) engines.splice(engines.indexOf(e), 1);
           setTimeout(next, 50);
         });
+      }
+      // ต่อเนื่อง: ป้ายเดิมที่ยังอยู่หน้ากล้องไม่นับซ้ำ (ต้องหายไปอย่างน้อย 2.5 วินาที) · พักสั้นๆ หลังอ่านได้
+      var lastText = '', lastAt = 0;
+      function onCont(text) {
+        var now = Date.now();
+        if (text === lastText && now - lastAt < 2500) { lastAt = now; setTimeout(next, 120); return; }
+        lastText = text; lastAt = now; startAt = now;
+        var cls = opts.onEach(text);
+        if ($('camStatus') && opts.status) $('camStatus').innerHTML = opts.status();
+        var f = $('camFlash'); if (f) { f.className = 'cam-flash ' + (cls || 'ok'); void f.offsetWidth; f.classList.add('on'); }
+        setTimeout(next, 800);
       }
       next();
     });
