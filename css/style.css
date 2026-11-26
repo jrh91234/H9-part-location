@@ -200,3 +200,20 @@ a.btn { text-decoration: none; color: inherit; display: block; }
 .ck-ngrow input { flex: 1; min-width: 0; font-size: 18px; padding: 10px; border: 2px solid var(--line); border-radius: 10px; font-family: inherit; }
 .ck-ngrow .btn { flex: none; }
 #camStatus .ck-pend .big { font-size: 34px; }
+/* ยืนยัน 2 ด้าน */
+.ck-side { text-align: left; border: 1px solid var(--line); border-radius: 12px; padding: 8px; margin-top: 8px; background: var(--bg); }
+.ck-side.done.ok { background: var(--green-soft); border-color: #b5e2c6; }
+.ck-side.done.ng { background: var(--red-soft); border-color: #f2c0c0; }
+.ck-side.done.empty { background: var(--amber-soft); border-color: #f1d9a8; }
+.ck-side .sn { font-weight: 700; font-size: 16px; margin-bottom: 6px; }
+.ck-side .todo { font-weight: 400; font-size: 13px; color: var(--amber); }
+.ck-btns2 { display: flex; gap: 8px; }
+.ck-btns2 .btn { padding: 13px 6px; font-size: 17px; font-weight: 700; }
+.ck-btns2 .ck-empty { flex: 0 0 56px; }
+.ck-side.done .ck-btns2 .btn { padding: 8px 6px; font-size: 14px; opacity: .75; }
+.ck-side .ck-ng { margin-top: 0; }
+.ck-chip.todo { background: var(--bg); color: var(--muted); }
+.ck-chip.half { background: #e2f4e8; color: var(--green); }
+.ck-bar .half { background: #9fd9b4; }
+.rc.ck-half { background: #9fd9b4; }
+.ck-row.half { border-left-color: #9fd9b4; }
