@@ -75,12 +75,14 @@ function assignSheet_() { return sheetWith_(ASSIGN_SHEET, ASSIGN_HEADERS); }
 function logSheet_() { return sheetWith_(LOG_SHEET, LOG_HEADERS); }
 
 function now_() { return Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd'T'HH:mm:ss"); }
+// Sheets อาจแปลงข้อความเวลาเป็น Date เอง → อ่านกลับเป็นรูปแบบเดียวกันเสมอ (เรียงลำดับได้)
+function ts_(v) { return v instanceof Date ? Utilities.formatDate(v, TZ, "yyyy-MM-dd'T'HH:mm:ss") : String(v); }
 
 function readAssign_(sh) {
   const n = sh.getLastRow() - 1;
   if (n <= 0) return [];
   return sh.getRange(2, 1, n, ASSIGN_HEADERS.length).getValues().map(function (r, i) {
-    return { row: i + 2, loc: String(r[0]).trim(), code: String(r[1]).trim(), by: String(r[2]), at: String(r[3]), note: String(r[4]) };
+    return { row: i + 2, loc: String(r[0]).trim(), code: String(r[1]).trim(), by: String(r[2]), at: ts_(r[3]), note: String(r[4]) };
   }).filter(function (r) { return r.loc; });
 }
 function publicRows_(rows) {
@@ -162,6 +164,6 @@ function getLog(limit) {
   limit = Math.min(Math.max(Number(limit) || 50, 1), 500);
   const start = Math.max(2, sh.getLastRow() - limit + 1);
   return sh.getRange(start, 1, sh.getLastRow() - start + 1, LOG_HEADERS.length).getValues().reverse().map(function (r) {
-    return { at: String(r[0]), by: String(r[1]), action: String(r[2]), loc: String(r[3]), old: String(r[4]), code: String(r[5]), note: String(r[6]) };
+    return { at: ts_(r[0]), by: String(r[1]), action: String(r[2]), loc: String(r[3]), old: String(r[4]), code: String(r[5]), note: String(r[6]) };
   });
 }
