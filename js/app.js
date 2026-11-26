@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261126-1105'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261126-1139'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -701,7 +701,7 @@ function setAssignRows(rows) {
   saveAssign(); applyAssignments();
 }
 // ดึงการเปลี่ยนล่าสุดจาก Google Sheet (ตอนเปิดแอป / กลับมาที่หน้าเว็บ) → รวมข้อมูลใหม่แล้ววาดหน้าจอใหม่
-var syncing = null;
+var syncing = null, syncErr = '';
 function syncAssignments(force) {
   if (!apiUrl()) return Promise.resolve(false);
   if (syncing) return syncing;
@@ -712,7 +712,11 @@ function syncAssignments(force) {
     var changed = before !== JSON.stringify(ASSIGN.rows);
     if ((changed || force) && $('modal').classList.contains('hidden')) render();
     return changed;
-  }).then(function (c) { syncing = null; return c; }, function (e) { syncing = null; throw e; });
+  }).then(function (c) { syncing = null; syncErr = ''; return c; }, function (e) {
+    syncing = null; syncErr = e.message || String(e);
+    if (S.tab === 'settings' && $('modal').classList.contains('hidden')) renderSettings();
+    throw e;
+  });
   return syncing;
 }
 
@@ -779,6 +783,7 @@ function renderSettings() {
     '<label class="small muted">① Location</label>' +
     '<div class="ck-ngrow"><input id="edLoc" type="text" autocapitalize="characters" autocomplete="off" placeholder="เช่น L3-05" value="' + esc(T ? T.replace(/^H9-/, '') : '') + '">' +
       '<button class="btn" id="edLocOk">เลือก</button></div>';
+  if (!T) edit += '<div class="small muted ed-hint">พิมพ์ Location แล้ว ② ช่องค้นหา / 📷 สแกน Part จะขึ้นทันที</div>';
   if (T) {
     edit += '<div class="ed-cur"><div class="big">' + esc(T) + '</div>' +
       '<div class="small">ตอนนี้: ' + (O ? partLine(O) : '<b>ช่องว่าง</b>') + '</div>' +
@@ -821,7 +826,8 @@ function renderSettings() {
     '<div class="set-head"><button class="btn sm" id="setBack">← กลับ</button><b>⚙ ตั้งค่า</b><button class="btn sm" id="setLock">🔒 ออก</button></div>' +
     '<div class="set-card"><div class="set-status ' + (api_ ? 'on' : 'off') + '">' +
       (api_ ? '🟢 เชื่อม Google Sheet แล้ว — ทุกเครื่องเห็นการเปลี่ยน' : '🟠 ยังไม่ได้ต่อ Google Sheet — การเปลี่ยนเก็บในเครื่องนี้เท่านั้น') + '</div>' +
-      (api_ ? '<div class="small muted">ซิงค์ล่าสุด: ' + (ASSIGN.syncedAt ? fmtTime(ASSIGN.syncedAt) : '-') + ' <button class="btn sm" id="setSync">🔄 ซิงค์</button></div>' : '') +
+      (api_ ? '<div class="small muted">ซิงค์ล่าสุด: ' + (ASSIGN.syncedAt ? fmtTime(ASSIGN.syncedAt) : '-') + ' <button class="btn sm" id="setSync">🔄 ซิงค์</button></div>' +
+        (syncErr ? '<div class="msg err small">ดึงข้อมูลจาก Google Sheet ไม่สำเร็จ: ' + esc(syncErr) + '</div>' : '') : '') +
       '<label class="small muted">ชื่อผู้แก้ไข (บันทึกในประวัติ)</label><input id="edBy" class="ed-note" type="text" maxlength="40" placeholder="ชื่อ" value="' + esc(editorBy()) + '"></div>' +
     edit + list +
     (api_ ? '<div class="set-card"><h4>🕘 ประวัติการเปลี่ยน</h4><div id="logBox"><button class="btn" id="logLoad">ดูประวัติล่าสุด</button></div></div>' : '') +
@@ -841,9 +847,14 @@ function renderSettings() {
   function pickLoc() {
     var l = normLoc($('edLoc').value);
     if (!locExists(l)) { toast('ไม่มี Location นี้ในผัง (เช่น L3-05)', 2500); return; }
-    E.loc = l; E.code = ''; E.q = ''; E.mode = 'swap'; renderSettings();
+    E.loc = l; E.code = ''; E.q = ''; E.mode = 'swap'; renderSettings(); focusPart();
   }
+  function focusPart() { setTimeout(function () { if ($('edQ')) { $('edQ').focus(); $('edQ').scrollIntoView({ block: 'center', behavior: 'smooth' }); } }, 30); }
   $('edLocOk').onclick = pickLoc;
+  $('edLoc').oninput = function () {
+    var l = normLoc(this.value);
+    if (locExists(l) && l !== E.loc && /\d{2}$/.test(this.value.trim())) { E.loc = l; E.code = ''; E.q = ''; E.mode = 'swap'; renderSettings(); focusPart(); }
+  };
   $('edLoc').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); pickLoc(); } };
   if ($('edQ')) {
     var sug = function () {

@@ -262,3 +262,4 @@ a.btn { text-decoration: none; color: inherit; display: block; }
 .pin-in { width: 100%; font-size: 28px; letter-spacing: 8px; text-align: center; padding: 12px; border: 2px solid var(--line); border-radius: 12px; font-family: inherit; }
 .tag.chg { background: #efe6fb; color: #7247b8; }
 .chgtxt { color: #7247b8; }
+.ed-hint { margin-top: 8px; } .msg.small { font-size: 13px; padding: 8px 10px; margin: 6px 0 0; }

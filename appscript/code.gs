@@ -55,7 +55,9 @@ function setupFromMenu() {
 // ======================= ชีต =======================
 function book_() {
   const id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
-  return id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+  const ss = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('Apps Script ไม่ได้ผูกกับ Google Sheet — ใส่ Script Properties: SPREADSHEET_ID = ID ของชีต H9 Part Location');
+  return ss;
 }
 
 function sheetWith_(name, headers) {
