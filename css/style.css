@@ -233,3 +233,32 @@ a.btn { text-decoration: none; color: inherit; display: block; }
 .sum th, .sum td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: right; }
 .sum th:first-child, .sum td:first-child { text-align: left; }
 .sum th { color: var(--muted); font-weight: 600; font-size: 12px; }
+
+/* ⚙ ตั้งค่า */
+.chip.on { background: #fff; color: var(--blue); }
+.set-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; font-size: 18px; }
+.btn.sm { flex: none; padding: 6px 12px; font-size: 14px; border-radius: 10px; }
+.set-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; margin-bottom: 12px; }
+.set-card h4 { margin: 0 0 8px; font-size: 16px; }
+.set-card label { display: block; margin: 8px 0 4px; }
+.set-card summary { cursor: pointer; }
+.set-status { border-radius: 10px; padding: 8px 10px; font-weight: 600; margin-bottom: 6px; font-size: 14px; }
+.set-status.on { background: var(--green-soft); color: var(--green); }
+.set-status.off { background: var(--amber-soft); color: var(--amber); }
+.ed-note { width: 100%; font-size: 16px; padding: 10px; border: 2px solid var(--line); border-radius: 10px; font-family: inherit; }
+.ed-cur { background: var(--blue-soft); border-radius: 12px; padding: 10px; margin: 8px 0; overflow-wrap: anywhere; }
+.ed-cur .big { font-size: 28px; font-weight: 700; color: var(--blue); }
+.ed-new { background: var(--green-soft); border-radius: 12px; padding: 10px; margin: 8px 0; overflow-wrap: anywhere; }
+.ed-plan { background: var(--amber-soft); border-radius: 12px; padding: 10px; margin: 8px 0; font-size: 15px; }
+.seg { display: flex; gap: 6px; }
+.seg button { flex: 1; border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 10px 6px; font-weight: 600; }
+.seg button.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+.sug { display: block; width: 100%; text-align: left; border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 8px 10px; margin-top: 6px; overflow-wrap: anywhere; }
+.sug:active { background: var(--blue-soft); }
+.chg-row, .log-row { display: flex; gap: 10px; align-items: center; border-top: 1px solid var(--line); padding: 8px 0; overflow-wrap: anywhere; }
+.log-row { display: block; }
+.chg-row .l { flex: none; width: 58px; font-weight: 700; color: var(--blue); }
+.chg-row .m { flex: 1; min-width: 0; }
+.pin-in { width: 100%; font-size: 28px; letter-spacing: 8px; text-align: center; padding: 12px; border: 2px solid var(--line); border-radius: 12px; font-family: inherit; }
+.tag.chg { background: #efe6fb; color: #7247b8; }
+.chgtxt { color: #7247b8; }

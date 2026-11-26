@@ -2,8 +2,9 @@
 
 เว็บแอปสำหรับ **โทรศัพท์** (ใช้กับ PDA / หัวสแกนได้ด้วย) ใช้ค้นหาว่า **รหัส Part อยู่ Location ไหน** หรือ **Location นี้เก็บ Part อะไร** บนชั้นวาง H9 (Label / Part ชั้นบน)
 
-- **หน้าเว็บ:** GitHub Pages (HTML/JS ล้วน ไม่ต้อง build ไม่ต้องมี backend)
-- **ข้อมูล:** `js/data.js` สร้างจากไฟล์ Excel `Part_Locations_Labels_Upper.xlsx` ด้วย `tools/build-data.py`
+- **หน้าเว็บ:** GitHub Pages (HTML/JS ล้วน ไม่ต้อง build)
+- **ข้อมูลหลัก:** `js/data.js` สร้างจากไฟล์ Excel `Part_Locations_Labels_Upper.xlsx` ด้วย `tools/build-data.py`
+- **การเปลี่ยนคู่ Part ↔ Location (เมนู ⚙):** Google Sheet + Apps Script (`appscript/`) ซึ่ง GitHub Actions deploy ให้อัตโนมัติ (ระบบเดียวกับ pda-location-scan)
 
 ---
 
@@ -39,6 +40,21 @@
 - ความคืบหน้า "ครบ 2 ด้าน x/305" · รายการ **ไม่ตรง / ว่าง**, **ยังไม่ครบ**, **ผลทั้งหมด** — แตะเพื่อเช็คช่องนั้นใหม่ (ยืนยันใหม่จะทับผลเดิมของด้านนั้น)
 - **⬇️ Export** CSV (เปิดด้วย Excel ได้) ครบ 305 Location: ผลรวม / ด้านหน้า / ด้านหลัง / ช่องที่พบจริงของแต่ละด้าน / เวลา
 - ผลเก็บในเครื่อง · **🗑 เริ่มเช็คใหม่** เพื่อล้างผล (Export เก็บไว้ก่อน)
+
+### ⚙ ตั้งค่า: เปลี่ยน Part ที่จับคู่กับ Location (ต้องใส่รหัส)
+1. กด **⚙** มุมขวาบน → ใส่รหัส (ค่าเริ่มต้น `1234`) — ปิดแท็บ/เบราว์เซอร์แล้วต้องใส่ใหม่ · กด **🔒 ออก** เพื่อล็อกทันที
+2. ใส่ **ชื่อผู้แก้ไข** (เก็บในประวัติ)
+3. **① Location** พิมพ์ เช่น `L3-05` → เห็น Part ปัจจุบันของช่อง
+4. **② Part ใหม่** พิมพ์รหัส/Spec/ชื่อ แล้วเลือกจากรายการ หรือกด 📷 สแกนป้าย · หรือ **⬜ ทำให้ช่องนี้ว่าง**
+5. **③** ถ้า Part ใหม่มีช่องอยู่แล้ว เลือกว่า Part เดิมของช่องนี้จะ **🔁 สลับไปช่องเดิมของ Part ใหม่** หรือ **⏳ รอจัดพื้นที่**
+6. ตรวจ "จะบันทึก" แล้วกด **💾 บันทึก**
+- ทางลัด: แตะการ์ด Part → **✏️ เปลี่ยน Part**
+- **📋 ช่องที่เปลี่ยนจาก Excel**: รายการทั้งหมดที่ต่างจากไฟล์ Excel · **↩ คืนค่า** = ให้ช่องนั้นกลับไปใช้ค่าตาม Excel (ถ้า Part ตาม Excel ของช่องนั้นถูกย้ายไปช่องอื่นอยู่ ช่องจะว่าง)
+- **🕘 ประวัติ**: ใคร เปลี่ยนช่องไหน จากอะไรเป็นอะไร เมื่อไร (ชีต `Log`)
+- ทุกหน้า (ค้นหา / ไล่เช็ค / ผัง / สรุป) ใช้ข้อมูลหลังเปลี่ยนทันที · Part ที่ถูกเปลี่ยนมีป้าย **✏️ เปลี่ยนจาก Excel (เดิม …)**
+- ทุกเครื่องดึงการเปลี่ยนล่าสุดจาก Google Sheet ตอนเปิดแอปและตอนกลับมาที่หน้าเว็บ (ออฟไลน์ → ใช้ข้อมูลล่าสุดที่เก็บในเครื่อง)
+- **ยังไม่ได้ต่อ Google Sheet** (`js/config.js` ว่าง): เมนูตั้งค่ายังใช้ได้ แต่การเปลี่ยนเก็บในเครื่องนั้นเท่านั้น
+- ⚠️ รหัสนี้กันคนกดเล่นเท่านั้น ไม่ใช่ระบบความปลอดภัยจริง · เมื่อต่อ Google Sheet แล้วเซิร์ฟเวอร์เป็นคนตรวจรหัส เปลี่ยนรหัสได้ที่ Apps Script → Project Settings → Script Properties → `ADMIN_PIN`
 
 ### 🔗 QR ลิงก์เข้าหน้าเว็บ
 - ปุ่ม **🔗 QR แอป** มุมขวาบน → QR ของลิงก์หน้าเว็บ ให้คนอื่นสแกนด้วยกล้องมือถือเพื่อเปิดแอป · คัดลอกลิงก์ / แชร์ / บันทึกรูป / พิมพ์ได้
@@ -77,6 +93,31 @@ git add js/data.js index.html js/app.js version.json && git commit -m "อัป
 ไฟล์หลัก: `index.html`, `css/style.css`, `js/app.js` · ทดสอบในเครื่อง: `python -m http.server 8000` แล้วเปิด `http://localhost:8000` (กล้องต้องใช้ https หรือ localhost)
 
 ก่อน push ทุกครั้งให้รัน `python tools/bump-version.py` เพื่อให้เครื่องที่เปิดค้างไว้โหลดเวอร์ชันใหม่
+
+## ตั้งค่า Google Sheet (ครั้งแรก — สำหรับเมนู ⚙ ให้ทุกเครื่องเห็นการเปลี่ยน)
+
+### 1. Google Sheet + Apps Script
+1. สร้าง Google Sheet ใหม่ชื่อ `H9 Part Location`
+2. เปิด **ส่วนขยาย → Apps Script** → วางโค้ด `appscript/code.gs` และเปิด "Show appsscript.json" (Project Settings) แล้ววางเนื้อหา `appscript/appsscript.json`
+3. กลับไปที่ชีตแล้วรีเฟรช จะมีเมนู **H9 Location** → กด **ตั้งค่าเริ่มต้น** → อนุญาตสิทธิ์ (ขั้นสูง → ไปที่ … → อนุญาต) ระบบจะสร้างชีต `Assignments` และ `Log`
+4. Apps Script → **Deploy → New deployment → Web app**: Execute as **Me**, Who has access **Anyone** → คัดลอก URL `/exec`
+5. นำ URL ไปใส่ใน `js/config.js` (`API_URL`) แล้ว commit (หรือส่ง URL ให้ Claude ใส่ให้) — ระหว่างนี้ใส่ชั่วคราวได้ที่ ⚙ ตั้งค่า → ขั้นสูง
+6. Script Properties (ไม่บังคับ): `ADMIN_PIN` = รหัสเข้าเมนูตั้งค่า (ค่าเริ่มต้น `1234`) · `SPREADSHEET_ID` = ใช้เมื่อ script ไม่ได้ผูกกับชีต
+
+### 2. GitHub Actions (deploy Apps Script อัตโนมัติ)
+ตั้ง Secrets 3 ตัวที่ repo นี้ (Settings → Secrets and variables → Actions):
+- `APPS_SCRIPT_ID`: Apps Script → Project Settings → Script ID
+- `APPS_SCRIPT_DEPLOYMENT_ID`: Deploy → Manage deployments (ID ของ deployment ในข้อ 1.4)
+- `CLASPRC_JSON`: ไฟล์เดียวกับ repo อื่น
+  ```bash
+  gh secret set CLASPRC_JSON --repo jrh91234/H9-part-location < ~/.clasprc.json
+  ```
+
+ต่อไปเมื่อ push การแก้ใน `appscript/` GitHub Actions จะอัปเดต deployment เดิมให้ URL `/exec` คงเดิม
+
+### คอลัมน์ในชีต
+- `Assignments`: `location` · `part_code` (ว่าง = ช่องว่าง) · `updated_by` · `updated_at` · `note` — 1 แถว = 1 ช่องที่ต่างจาก Excel (แก้ในชีตตรงๆ ได้ ทุกเครื่องจะเห็นตอนซิงค์ครั้งถัดไป)
+- `Log`: `at` · `by` · `action` (assign / clear / revert) · `location` · `old_code` · `new_code` · `note`
 
 ## เปิด GitHub Pages
 Settings → Pages → Source: **Deploy from a branch** → Branch: `main` / `(root)` → Save

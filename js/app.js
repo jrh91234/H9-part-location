@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261126-0914'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261126-0947'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -9,15 +9,40 @@ var MAX_COL = Math.max.apply(null, LV_LIST.map(function (l) { return LEVELS[l]; 
 var LINES = [4, 5, 1];
 
 // ---------- ดัชนี ----------
+// p.loc0 = ช่องตามไฟล์ Excel · p.loc = ช่องจริงตอนนี้ (หลังรวมการเปลี่ยนจากเมนูตั้งค่า)
 var byLoc = {}, byCode = {}, bySpec = {};
 PARTS.forEach(function (p, i) {
-  p.i = i;
-  p.short = p.loc ? p.loc.replace(/^H9-/, '') : '';
-  p.hay = [p.loc, p.short, p.code, p.spec, p.name.toUpperCase(), p.grp.toUpperCase(), p.loc ? '' : 'รอจัดพื้นที่'].join(' ');
-  if (p.loc) byLoc[p.loc] = p;
+  p.i = i; p.loc0 = p.loc;
   (byCode[p.code] = byCode[p.code] || []).push(p);
   if (p.spec) (bySpec[p.spec] = bySpec[p.spec] || []).push(p);
 });
+// ASSIGN.rows = { loc: { code ('' = ช่องว่าง), by, at, note } } — ช่องที่ถูกเปลี่ยนทับข้อมูล Excel (จาก Google Sheet / เก็บในเครื่อง)
+var ASSIGN = (function () {
+  try { var d = JSON.parse(localStorage.getItem('h9pl_assign') || 'null'); if (d && d.rows) return d; } catch (e) { /* ไม่มี/เสีย */ }
+  return { rows: {}, syncedAt: 0, local: false };
+})();
+// รวมข้อมูล: ช่องที่ถูกเปลี่ยน → ใช้ค่าที่เปลี่ยน · Part ที่ถูกย้ายไปช่องอื่น → ออกจากช่องเดิม · Part ที่ไม่มีช่อง → รอจัดพื้นที่
+// ถ้า Part เดียวถูกกำหนดไว้หลายช่อง ใช้รายการล่าสุด
+function applyAssignments() {
+  var A = ASSIGN.rows || {}, moved = {};
+  Object.keys(A).forEach(function (l) {
+    var r = A[l]; if (!r.code || !byCode[r.code]) return;
+    if (!moved[r.code] || String(moved[r.code].at) < String(r.at)) moved[r.code] = { loc: l, at: r.at };
+  });
+  byLoc = {};
+  PARTS.forEach(function (p) {
+    p.loc = moved[p.code] ? moved[p.code].loc : (p.loc0 && !A[p.loc0] ? p.loc0 : '');
+  });
+  PARTS.forEach(function (p) {
+    var m = p.loc.match(/^H9-L(\d+)-(\d+)$/);
+    p.lv = m ? +m[1] : 0; p.col = m ? +m[2] : 0;
+    if (p.loc && byLoc[p.loc]) p.loc = ''; // กันซ้ำช่อง
+    p.short = p.loc ? p.loc.replace(/^H9-/, '') : '';
+    p.hay = [p.loc, p.short, p.code, p.spec, p.name.toUpperCase(), p.grp.toUpperCase(), p.loc ? '' : 'รอจัดพื้นที่'].join(' ');
+    if (p.loc) byLoc[p.loc] = p;
+  });
+}
+applyAssignments();
 function locOrder(a, b) {
   if (!a.loc !== !b.loc) return a.loc ? -1 : 1;
   return a.lv - b.lv || a.col - b.col || a.i - b.i;
@@ -171,7 +196,8 @@ function recent() { try { return JSON.parse(store('h9pl_recent') || '[]'); } cat
 function render() {
   $('app').innerHTML =
     '<div class="top"><div class="brand">📍 H9 Part Location <span class="ver">v' + esc(APP_VERSION) + '</span></div>' +
-      '<button class="chip" id="appQr" aria-label="QR ลิงก์เข้าหน้าเว็บ">🔗 QR แอป</button></div>' +
+      '<button class="chip" id="appQr" aria-label="QR ลิงก์เข้าหน้าเว็บ">🔗 QR</button>' +
+      '<button class="chip' + (S.tab === 'settings' ? ' on' : '') + '" id="appSet" aria-label="ตั้งค่า">⚙</button></div>' +
     '<div class="tabs">' +
       '<button data-tab="search" class="' + (S.tab === 'search' ? 'active' : '') + '">🔎 ค้นหา</button>' +
       '<button data-tab="check" class="' + (S.tab === 'check' ? 'active' : '') + '">✅ ไล่เช็ค</button>' +
@@ -183,7 +209,8 @@ function render() {
   $('appQr').onclick = function () {
     showQr(APP_URL, 'H9 Part Location', 'สแกน QR นี้ด้วยกล้องมือถือเพื่อเปิดแอปค้นหา Part ↔ Location');
   };
-  if (S.tab === 'search') renderSearch(); else if (S.tab === 'check') renderCheck(); else renderMap();
+  $('appSet').onclick = function () { openSettings(); };
+  if (S.tab === 'search') renderSearch(); else if (S.tab === 'check') renderCheck(); else if (S.tab === 'settings') renderSettings(); else renderMap();
 }
 function setTab(t) { S.tab = t; render(); window.scrollTo(0, 0); }
 
@@ -253,7 +280,10 @@ function renderResults() {
     html += '<div class="count"><span>' + list.length + ' รายการ' + (waiting ? ' · รอจัดพื้นที่ ' + waiting : '') + '</span>' +
       (list.length > LIMIT ? '<span>แสดง ' + LIMIT + ' รายการแรก</span>' : '') + '</div>';
     html += list.slice(0, LIMIT).map(function (p) { return cardHtml(p, toks, S.scan && S.scan.parts.length); }).join('');
-    if (!list.length) html += '<div class="msg warn">ไม่พบรายการที่ตรงกับ “' + esc(S.q) + '”</div>';
+    var emptyLoc = normLoc(S.q);
+    if (!list.length) html += locExists(emptyLoc) && !byLoc[emptyLoc]
+      ? '<div class="msg warn">⬜ ช่อง <b>' + esc(emptyLoc) + '</b> ว่าง (ไม่มี Part)</div>'
+      : '<div class="msg warn">ไม่พบรายการที่ตรงกับ “' + esc(S.q) + '”</div>';
   }
   box.innerHTML = html;
   Array.prototype.forEach.call(box.querySelectorAll('[data-i]'), function (b) {
@@ -274,7 +304,8 @@ function cardHtml(p, toks, hit) {
     '<div class="spec">' + hl(p.spec, toks) + '</div>' +
     '<div class="name">' + hl(p.name, toks) + '</div>' +
     '<div class="tags"><span class="tag ' + lnCls(p) + '">Line ' + esc(p.line) + '</span><span class="tag">' + esc(p.grp) + '</span>' +
-      (p.st && p.st !== 'Approved' ? '<span class="tag warn">' + esc(p.st) + '</span>' : '') + '</div></div></button>';
+      (p.st && p.st !== 'Approved' ? '<span class="tag warn">' + esc(p.st) + '</span>' : '') +
+      (p.loc !== p.loc0 ? '<span class="tag chg">✏️ เปลี่ยนจาก Excel' + (p.loc0 ? ' (เดิม ' + esc(p.loc0.replace(/^H9-/, '')) + ')' : '') + '</span>' : '') + '</div></div></button>';
 }
 
 function rackHtml(mark, clickable) {
@@ -300,6 +331,7 @@ function showDetail(p) {
       '<div class="k">Child Code</div><div class="v">' + esc(p.code) + '<button class="copy" data-copy="' + esc(p.code) + '">คัดลอก</button></div>' +
       '<div class="k">Specification</div><div class="v">' + esc(p.spec || '-') + (p.spec ? '<button class="copy" data-copy="' + esc(p.spec) + '">คัดลอก</button>' : '') + '</div>' +
       '<div class="k">ชื่อ</div><div class="v">' + esc(p.name) + '</div>' +
+      (p.loc !== p.loc0 ? '<div class="k">ตาม Excel</div><div class="v chgtxt">' + esc(p.loc0 || 'รอจัดพื้นที่') + ' (เปลี่ยนในเมนูตั้งค่า)</div>' : '') +
       '<div class="k">Line ผลิต</div><div class="v"><span class="tag ' + lnCls(p) + '">Line ' + esc(p.line) + '</span></div>' +
       '<div class="k">กลุ่ม Part</div><div class="v">' + esc(p.grp) + '</div>' +
       '<div class="k">Data Status</div><div class="v">' + esc(p.st) + '</div>' +
@@ -307,11 +339,13 @@ function showDetail(p) {
     '</div>' +
     '<div class="actions">' + (p.loc ? '<button class="btn" id="dMap">🗂 ดูในผัง</button>' : '') +
       '<button class="btn primary" id="dScan">📷 สแกนต่อ</button></div>' +
-    '<div class="actions"><button class="btn" id="dQr">🔗 QR ลิงก์</button><button class="btn" id="dClose">ปิด</button></div>');
+    '<div class="actions"><button class="btn" id="dQr">🔗 QR ลิงก์</button><button class="btn" id="dEdit">✏️ เปลี่ยน Part</button></div>' +
+    '<div class="actions"><button class="btn" id="dClose">ปิด</button></div>');
   Array.prototype.forEach.call(document.querySelectorAll('[data-copy]'), function (b) {
     b.onclick = function () { copy(b.getAttribute('data-copy')); };
   });
   $('dClose').onclick = closeModal;
+  $('dEdit').onclick = function () { closeModal(); openSettings({ loc: p.loc || '', code: p.loc ? '' : p.code }); };
   $('dQr').onclick = function () {
     var key = p.loc || p.code;
     showQr(APP_URL + '#q=' + encodeURIComponent(key), p.loc || p.code, (p.loc ? p.code + ' · ' : '') + p.name,
@@ -392,7 +426,10 @@ var CK = (function () {
   try { var d = JSON.parse(store('h9pl_check3') || 'null'); if (d && d.rec) return d; } catch (e) { /* ข้อมูลเสีย → เริ่มใหม่ */ }
   return { rec: {}, pend: null, last: null };
 })();
-var ALL_LOCS = PARTS.filter(function (p) { return p.loc; }).sort(locOrder).map(function (p) { return p.loc; });
+var ALL_LOCS = [];
+Object.keys(LEVELS).map(Number).sort(function (a, b) { return a - b; }).forEach(function (l) {
+  for (var c = 1; c <= LEVELS[l]; c++) ALL_LOCS.push('H9-L' + l + '-' + ('0' + c).slice(-2));
+});
 var CK_LBL = { ok: '✅ ตรง', ng: '❌ ไม่ตรง', empty: '⬜ ช่องว่าง', half: '½ เช็คแล้ว 1 ด้าน' };
 var SIDE_LBL = { ok: '✅ ตรง', ng: '❌ ไม่ตรง', empty: '⬜ ว่าง' };
 function saveCheck() { store('h9pl_check3', JSON.stringify(CK)); }
@@ -620,7 +657,7 @@ function exportCheck() {
     function sd(x) { return x ? SIDE_LBL[x.st].replace(/^\S+\s/, '') : 'ยังไม่เช็ค'; }
     function fd(x) { return x && x.st === 'ng' ? (x.found || 'ไม่ระบุ') : ''; }
     return [loc, s ? CK_LBL[s].replace(/^\S+\s/, '') : 'ยังไม่เช็ค', sd(r.f), fd(r.f), sd(r.b), fd(r.b),
-      p.code, p.spec, p.name, p.line, p.grp, t ? new Date(t).toLocaleString('th-TH') : ''];
+      p ? p.code : '', p ? p.spec : '', p ? p.name : '(ไม่มี Part)', p ? p.line : '', p ? p.grp : '', t ? new Date(t).toLocaleString('th-TH') : ''];
   });
   var csv = '﻿' + [head].concat(rows).map(function (row) {
     return row.map(function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(',');
@@ -631,6 +668,265 @@ function exportCheck() {
   a.download = 'H9-check-' + d.getFullYear() + z(d.getMonth() + 1) + z(d.getDate()) + '-' + z(d.getHours()) + z(d.getMinutes()) + '.csv';
   document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 1000);
   toast('Export ' + rows.length + ' แถว');
+}
+
+// ======================= เชื่อมต่อ Apps Script (Google Sheet) =======================
+// ส่ง POST แบบ text/plain (ไม่เกิด CORS preflight) → Apps Script ตอบ JSON { ok, data | error } (แบบเดียวกับ pda-location-scan)
+function apiUrl() { return store('h9pl_api_url') || (window.H9_CONFIG && window.H9_CONFIG.API_URL) || ''; }
+function api(action) {
+  var args = Array.prototype.slice.call(arguments, 1), url = apiUrl();
+  if (!url) return Promise.reject(new Error('ยังไม่ได้ตั้งค่า Google Sheet'));
+  var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  var timer = ctrl && setTimeout(function () { ctrl.abort(); }, 30000);
+  return fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + '_r=' + Date.now(), {
+    method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: action, args: args }), redirect: 'follow', cache: 'no-store',
+    signal: ctrl ? ctrl.signal : undefined
+  }).then(function (res) {
+    return res.text().then(function (t) {
+      try { return JSON.parse(t); } catch (e) { throw new Error('เซิร์ฟเวอร์ตอบกลับผิดรูปแบบ (HTTP ' + res.status + ')'); }
+    });
+  }, function () { throw new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ตรวจสอบอินเทอร์เน็ต'); }).then(function (r) {
+    if (timer) clearTimeout(timer);
+    if (!r.ok) throw new Error(/auth|permission|权限/i.test(r.error || '') ? 'ระบบยังไม่ได้รับอนุญาต — ผู้ดูแลต้องเปิด Google Sheet → เมนู H9 Location → ตั้งค่าเริ่มต้น' : (r.error || 'เกิดข้อผิดพลาด'));
+    return r.data;
+  }, function (e) { if (timer) clearTimeout(timer); throw e; });
+}
+function rowsToMap(rows) {
+  var m = {}; (rows || []).forEach(function (r) { if (r.loc) m[r.loc] = { code: r.code || '', by: r.by, at: r.at, note: r.note }; }); return m;
+}
+function saveAssign() { store('h9pl_assign', JSON.stringify(ASSIGN)); }
+function setAssignRows(rows) {
+  ASSIGN = { rows: rowsToMap(rows), syncedAt: Date.now(), local: false };
+  saveAssign(); applyAssignments();
+}
+// ดึงการเปลี่ยนล่าสุดจาก Google Sheet (ตอนเปิดแอป / กลับมาที่หน้าเว็บ) → รวมข้อมูลใหม่แล้ววาดหน้าจอใหม่
+var syncing = null;
+function syncAssignments(force) {
+  if (!apiUrl()) return Promise.resolve(false);
+  if (syncing) return syncing;
+  if (!force && Date.now() - (ASSIGN.syncedAt || 0) < 60000) return Promise.resolve(false);
+  syncing = api('getAssignments').then(function (rows) {
+    var before = JSON.stringify(ASSIGN.rows);
+    setAssignRows(rows);
+    var changed = before !== JSON.stringify(ASSIGN.rows);
+    if ((changed || force) && $('modal').classList.contains('hidden')) render();
+    return changed;
+  }).then(function (c) { syncing = null; return c; }, function (e) { syncing = null; throw e; });
+  return syncing;
+}
+
+// ======================= ⚙ ตั้งค่า (ต้องใส่รหัส) =======================
+var LOCAL_PIN = '1234'; // ใช้เฉพาะตอนยังไม่ได้ต่อ Google Sheet — ถ้าต่อแล้ว เซิร์ฟเวอร์เป็นคนตรวจ (Script Properties → ADMIN_PIN)
+function adminPin() { try { return sessionStorage.getItem('h9pl_pin') || ''; } catch (e) { return ''; } }
+function setAdminPin(v) { try { if (v) sessionStorage.setItem('h9pl_pin', v); else sessionStorage.removeItem('h9pl_pin'); } catch (e) { /* โหมดส่วนตัว */ } }
+function openSettings(prefill) {
+  function go() {
+    S.ed = { loc: '', code: '', mode: 'swap', q: '', note: '' };
+    if (prefill) { S.ed.loc = prefill.loc || ''; S.ed.code = prefill.code || ''; }
+    setTab('settings');
+  }
+  if (adminPin()) { go(); return; }
+  openModal('<h3>⚙ ตั้งค่า</h3><p class="small muted">ใส่รหัสเพื่อเข้าเมนูตั้งค่า</p>' +
+    '<input id="pinIn" class="pin-in" type="password" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="รหัส">' +
+    '<p class="small center" id="pinMsg" style="color:var(--red)"></p>' +
+    '<div class="actions"><button class="btn" id="pinCancel">ยกเลิก</button><button class="btn primary" id="pinOk">เข้า</button></div>');
+  var inp = $('pinIn'); setTimeout(function () { inp.focus(); }, 50);
+  $('pinCancel').onclick = closeModal;
+  function check() {
+    var v = inp.value.trim(); if (!v) return;
+    $('pinOk').disabled = true; $('pinMsg').textContent = '';
+    var p = apiUrl() ? api('checkPin', v) : Promise.resolve(v === LOCAL_PIN);
+    p.then(function (ok) {
+      if (!ok) { $('pinMsg').textContent = 'รหัสไม่ถูกต้อง'; $('pinOk').disabled = false; inp.select(); beep(false); return; }
+      setAdminPin(v); closeModal(); go();
+    }, function (e) { $('pinMsg').textContent = e.message; $('pinOk').disabled = false; });
+  }
+  $('pinOk').onclick = check;
+  inp.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); check(); } };
+}
+
+function editorBy() { return store('h9pl_editor') || ''; }
+function partFind(q) {
+  var r = resolveScan(q); if (r && r.parts.length) return r.parts;
+  var toks = tokens(q); if (!toks.length) return [];
+  return PARTS.filter(function (p) {
+    for (var i = 0; i < toks.length; i++) if (p.hay.indexOf(toks[i]) < 0) return false;
+    return true;
+  }).sort(locOrder).slice(0, 8);
+}
+function partLine(p) {
+  return '<b>' + esc(p.code) + '</b> · ' + esc(p.name) + ' <span class="muted small">(' + esc(p.spec) + ')</span>';
+}
+// รายการเปลี่ยนจากสถานะในตัวแก้ไข: ช่อง T ← Part N · Part เดิมของ T (O) → สลับไปช่องเดิมของ N หรือ รอจัดพื้นที่
+function plannedChanges() {
+  var E = S.ed, T = E.loc, O = byLoc[T] || null, N = E.code === '-' ? null : (E.code && byCode[E.code] ? byCode[E.code][0] : undefined);
+  if (!T || N === undefined) return null;
+  if (N && O && N === O) return [];
+  var ch = [{ loc: T, code: N ? N.code : '', old: O ? O.code : '' }];
+  if (N && N.loc && N.loc !== T) ch.push({ loc: N.loc, code: E.mode === 'swap' && O ? O.code : '', old: N.code });
+  return ch;
+}
+
+function renderSettings() {
+  if (!adminPin()) { setTab('search'); return; }
+  var E = S.ed = S.ed || { loc: '', code: '', mode: 'swap', q: '', note: '' };
+  var changed = Object.keys(ASSIGN.rows || {}).sort(), api_ = !!apiUrl();
+  var T = E.loc, O = byLoc[T], N = E.code && E.code !== '-' && byCode[E.code] ? byCode[E.code][0] : null;
+  var ch = plannedChanges();
+
+  var edit = '<div class="set-card"><h4>✏️ เปลี่ยน Part ของ Location</h4>' +
+    '<label class="small muted">① Location</label>' +
+    '<div class="ck-ngrow"><input id="edLoc" type="text" autocapitalize="characters" autocomplete="off" placeholder="เช่น L3-05" value="' + esc(T ? T.replace(/^H9-/, '') : '') + '">' +
+      '<button class="btn" id="edLocOk">เลือก</button></div>';
+  if (T) {
+    edit += '<div class="ed-cur"><div class="big">' + esc(T) + '</div>' +
+      '<div class="small">ตอนนี้: ' + (O ? partLine(O) : '<b>ช่องว่าง</b>') + '</div>' +
+      (byLoc[T] && O.loc0 !== T ? '<div class="small chgtxt">✏️ เปลี่ยนจาก Excel แล้ว</div>' : '') +
+      (ASSIGN.rows[T] ? '' : (function () { var x = PARTS.filter(function (p) { return p.loc0 === T; })[0]; return x && x !== O ? '<div class="small muted">ตาม Excel: ' + esc(x.code) + '</div>' : ''; })()) + '</div>' +
+      '<label class="small muted">② Part ใหม่ที่จะใส่ช่องนี้</label>' +
+      '<div class="ck-ngrow"><input id="edQ" type="text" autocapitalize="characters" autocomplete="off" placeholder="รหัส / Spec / ชื่อ" value="' + esc(E.q) + '">' +
+        '<button class="btn" id="edCam">📷</button></div>' +
+      '<div id="edSug"></div>' +
+      '<div class="actions"><button class="btn' + (E.code === '-' ? ' primary' : '') + '" id="edEmpty">⬜ ทำให้ช่องนี้ว่าง</button></div>';
+    if (N || E.code === '-') {
+      edit += '<div class="ed-new">' + (N ? 'Part ใหม่: ' + partLine(N) + '<div class="small">ตอนนี้อยู่ที่: <b>' + esc(N.loc || 'รอจัดพื้นที่') + '</b></div>' : '<b>ทำให้ช่อง ' + esc(T) + ' ว่าง</b>') + '</div>';
+      if (N && O && N.loc && N !== O) {
+        edit += '<label class="small muted">③ Part เดิมของช่องนี้ (' + esc(O.code) + ') ให้ไปที่</label>' +
+          '<div class="seg"><button data-mode="swap" class="' + (E.mode === 'swap' ? 'active' : '') + '">🔁 สลับไป ' + esc(N.loc.replace(/^H9-/, '')) + '</button>' +
+          '<button data-mode="wait" class="' + (E.mode === 'wait' ? 'active' : '') + '">⏳ รอจัดพื้นที่</button></div>';
+      }
+      if (ch && ch.length) {
+        edit += '<div class="ed-plan"><div class="small muted">จะบันทึก:</div>' + ch.map(function (c) {
+          return '<div>• <b>' + esc(c.loc.replace(/^H9-/, '')) + '</b>: ' + esc(c.old || 'ว่าง') + ' → <b>' + esc(c.code || 'ว่าง') + '</b></div>';
+        }).join('') +
+          (O && (!N || !N.loc || E.mode === 'wait') && N !== O ? '<div class="small muted">' + esc(O.code) + ' จะไป "รอจัดพื้นที่"</div>' : '') + '</div>' +
+          '<input id="edNote" class="ed-note" type="text" maxlength="200" placeholder="หมายเหตุ (ไม่บังคับ)" value="' + esc(E.note) + '">' +
+          '<div class="actions"><button class="btn" id="edCancel">ยกเลิก</button><button class="btn primary" id="edSave">💾 บันทึก</button></div>';
+      } else if (ch) edit += '<div class="msg idle">Part นี้อยู่ช่องนี้อยู่แล้ว</div>';
+    }
+  }
+  edit += '</div>';
+
+  var list = '<div class="set-card"><h4>📋 ช่องที่เปลี่ยนจาก Excel (' + changed.length + ')</h4>' +
+    (changed.length ? changed.map(function (l) {
+      var r = ASSIGN.rows[l], x = PARTS.filter(function (p) { return p.loc0 === l; })[0];
+      return '<div class="chg-row"><div class="l">' + esc(l.replace(/^H9-/, '')) + '</div><div class="m">' +
+        '<div><span class="muted">Excel:</span> ' + esc(x ? x.code : 'ว่าง') + ' → <b>' + esc(r.code || 'ว่าง') + '</b></div>' +
+        '<div class="small muted">' + esc(r.by || '') + (r.at ? ' · ' + esc(String(r.at).replace('T', ' ').slice(0, 16)) : '') + (r.note ? ' · ' + esc(r.note) : '') + '</div></div>' +
+        '<button class="btn sm" data-revert="' + esc(l) + '">↩ คืนค่า</button></div>';
+    }).join('') : '<div class="small muted">ยังไม่มี — ทุกช่องตรงตามไฟล์ Excel</div>') + '</div>';
+
+  $('main').innerHTML =
+    '<div class="set-head"><button class="btn sm" id="setBack">← กลับ</button><b>⚙ ตั้งค่า</b><button class="btn sm" id="setLock">🔒 ออก</button></div>' +
+    '<div class="set-card"><div class="set-status ' + (api_ ? 'on' : 'off') + '">' +
+      (api_ ? '🟢 เชื่อม Google Sheet แล้ว — ทุกเครื่องเห็นการเปลี่ยน' : '🟠 ยังไม่ได้ต่อ Google Sheet — การเปลี่ยนเก็บในเครื่องนี้เท่านั้น') + '</div>' +
+      (api_ ? '<div class="small muted">ซิงค์ล่าสุด: ' + (ASSIGN.syncedAt ? fmtTime(ASSIGN.syncedAt) : '-') + ' <button class="btn sm" id="setSync">🔄 ซิงค์</button></div>' : '') +
+      '<label class="small muted">ชื่อผู้แก้ไข (บันทึกในประวัติ)</label><input id="edBy" class="ed-note" type="text" maxlength="40" placeholder="ชื่อ" value="' + esc(editorBy()) + '"></div>' +
+    edit + list +
+    (api_ ? '<div class="set-card"><h4>🕘 ประวัติการเปลี่ยน</h4><div id="logBox"><button class="btn" id="logLoad">ดูประวัติล่าสุด</button></div></div>' : '') +
+    '<details class="set-card"><summary><b>ขั้นสูง</b></summary>' +
+      '<label class="small muted">Apps Script URL (/exec) — ว่าง = ใช้ค่าใน js/config.js</label>' +
+      '<input id="setApi" class="ed-note" type="url" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(store('h9pl_api_url') || '') + '">' +
+      '<div class="actions"><button class="btn" id="setApiSave">บันทึก URL</button></div></details>';
+
+  // ----- ผูกปุ่ม -----
+  $('setBack').onclick = function () { setTab('search'); };
+  $('setLock').onclick = function () { setAdminPin(''); setTab('search'); toast('ออกจากเมนูตั้งค่าแล้ว'); };
+  $('edBy').onchange = function () { store('h9pl_editor', this.value.trim()); };
+  if ($('setSync')) $('setSync').onclick = function () {
+    this.disabled = true;
+    syncAssignments(true).then(function () { toast('ซิงค์แล้ว'); renderSettings(); }, function (e) { toast(e.message, 3500); renderSettings(); });
+  };
+  function pickLoc() {
+    var l = normLoc($('edLoc').value);
+    if (!locExists(l)) { toast('ไม่มี Location นี้ในผัง (เช่น L3-05)', 2500); return; }
+    E.loc = l; E.code = ''; E.q = ''; E.mode = 'swap'; renderSettings();
+  }
+  $('edLocOk').onclick = pickLoc;
+  $('edLoc').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); pickLoc(); } };
+  if ($('edQ')) {
+    var sug = function () {
+      var q = $('edQ').value; E.q = q;
+      var list = q.trim() ? partFind(q) : [];
+      $('edSug').innerHTML = list.map(function (p) {
+        return '<button class="sug" data-pc="' + esc(p.code) + '">' + partLine(p) + '<div class="small muted">อยู่ที่: ' + esc(p.loc || 'รอจัดพื้นที่') + '</div></button>';
+      }).join('') + (q.trim() && !list.length ? '<div class="small muted">ไม่พบ Part</div>' : '');
+      Array.prototype.forEach.call(document.querySelectorAll('[data-pc]'), function (b) {
+        b.onclick = function () { E.code = b.getAttribute('data-pc'); E.q = ''; E.mode = 'swap'; renderSettings(); };
+      });
+    };
+    $('edQ').oninput = sug;
+    $('edQ').onkeydown = function (e) {
+      if (e.key !== 'Enter') return; e.preventDefault();
+      var list = partFind($('edQ').value); if (list.length === 1) { E.code = list[0].code; E.q = ''; renderSettings(); }
+    };
+    if (E.q) sug();
+    $('edCam').onclick = function () {
+      openCameraScanner(function (t) {
+        var r = resolveScan(t);
+        if (!r) { beep(false); toast('ไม่พบ Part: ' + t, 3000); return; }
+        beep(true); E.code = r.parts[0].code; E.q = ''; renderSettings();
+      }, { title: 'สแกนป้าย Part ใหม่' });
+    };
+    $('edEmpty').onclick = function () { E.code = E.code === '-' ? '' : '-'; renderSettings(); };
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-mode]'), function (b) {
+    b.onclick = function () { E.mode = b.getAttribute('data-mode'); renderSettings(); };
+  });
+  if ($('edNote')) $('edNote').oninput = function () { E.note = this.value; };
+  if ($('edCancel')) $('edCancel').onclick = function () { E.code = ''; E.q = ''; E.note = ''; renderSettings(); };
+  if ($('edSave')) $('edSave').onclick = function () {
+    var by = $('edBy').value.trim(); store('h9pl_editor', by);
+    if (by.length < 2) { toast('กรุณาใส่ชื่อผู้แก้ไข', 2500); $('edBy').focus(); return; }
+    var changes = plannedChanges(); if (!changes || !changes.length) return;
+    var btn = this; btn.disabled = true; btn.textContent = 'กำลังบันทึก…';
+    saveChanges(changes, by, E.note).then(function () {
+      beep(true); toast('บันทึกแล้ว: ' + changes.map(function (c) { return c.loc.replace(/^H9-/, '') + ' → ' + (c.code || 'ว่าง'); }).join(' · '), 3500);
+      E.code = ''; E.q = ''; E.note = ''; renderSettings();
+    }, function (e) { beep(false); toast(e.message, 4000); btn.disabled = false; btn.textContent = '💾 บันทึก'; });
+  };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-revert]'), function (b) {
+    b.onclick = function () {
+      var l = b.getAttribute('data-revert'), by = $('edBy').value.trim();
+      if (by.length < 2) { toast('กรุณาใส่ชื่อผู้แก้ไข', 2500); $('edBy').focus(); return; }
+      if (!confirm('คืนค่าช่อง ' + l + ' กลับไปตามไฟล์ Excel?')) return;
+      b.disabled = true;
+      revertChange(l, by).then(function () { toast('คืนค่า ' + l + ' แล้ว'); renderSettings(); }, function (e) { toast(e.message, 4000); b.disabled = false; });
+    };
+  });
+  if ($('logLoad')) $('logLoad').onclick = function () {
+    $('logBox').innerHTML = '<div class="small muted">กำลังโหลด…</div>';
+    api('getLog', 50).then(function (rows) {
+      var A = { assign: 'ใส่', clear: 'ทำให้ว่าง', revert: 'คืนค่า Excel' };
+      $('logBox').innerHTML = rows.length ? rows.map(function (r) {
+        return '<div class="log-row"><b>' + esc(String(r.loc).replace(/^H9-/, '')) + '</b> ' + esc(A[r.action] || r.action) + ': ' + esc(r.old || 'ว่าง') + ' → <b>' + esc(r.code || (r.action === 'revert' ? 'ตาม Excel' : 'ว่าง')) + '</b>' +
+          '<div class="small muted">' + esc(String(r.at).replace('T', ' ').slice(0, 16)) + ' · ' + esc(r.by) + (r.note ? ' · ' + esc(r.note) : '') + '</div></div>';
+      }).join('') : '<div class="small muted">ยังไม่มีประวัติ</div>';
+    }, function (e) { $('logBox').innerHTML = '<div class="small" style="color:var(--red)">' + esc(e.message) + '</div>'; });
+  };
+  $('setApiSave').onclick = function () {
+    var v = $('setApi').value.trim();
+    if (v && !/^https:\/\/script\.google\.com\/.+\/exec$/.test(v)) { toast('URL ต้องเป็น https://script.google.com/…/exec', 3000); return; }
+    store('h9pl_api_url', v); ASSIGN.syncedAt = 0; setAdminPin('');
+    toast('บันทึก URL แล้ว — กรุณาใส่รหัสใหม่', 3000); setTab('search');
+    syncAssignments(true).catch(function (e) { toast(e.message, 3500); });
+  };
+}
+
+// บันทึก: มี Google Sheet → ส่งเซิร์ฟเวอร์ (ตรวจรหัส + เก็บประวัติ) แล้วใช้ข้อมูลที่ตอบกลับ · ไม่มี → เก็บในเครื่อง
+function saveChanges(changes, by, note) {
+  if (apiUrl()) return api('saveAssignments', adminPin(), by, changes, note || '').then(setAssignRows);
+  var at = new Date().toISOString().slice(0, 19);
+  changes.forEach(function (c) { ASSIGN.rows[c.loc] = { code: c.code, by: by, at: at, note: note || '' }; });
+  ASSIGN.local = true; saveAssign(); applyAssignments();
+  return Promise.resolve();
+}
+function revertChange(loc, by) {
+  var r = ASSIGN.rows[loc] || {}, x = PARTS.filter(function (p) { return p.loc0 === loc; })[0];
+  if (apiUrl()) return api('revertAssignment', adminPin(), by, loc, r.code || '', x ? x.code : '').then(setAssignRows);
+  delete ASSIGN.rows[loc]; saveAssign(); applyAssignments();
+  return Promise.resolve();
 }
 
 // ======================= QR ลิงก์เข้าหน้าเว็บ =======================
@@ -927,7 +1223,8 @@ window.addEventListener('hashchange', function () {
   var q = (location.hash.match(/[#&]q=([^&]*)/) || [])[1];
   if (q) { closeModal(); handleScan(decodeURIComponent(q), 'link'); }
 });
-document.addEventListener('visibilitychange', function () { if (!document.hidden) checkUpdate(); });
+document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkUpdate(); syncAssignments().catch(function () {}); } });
+syncAssignments(true).catch(function () { /* ออฟไลน์ → ใช้ข้อมูลที่เก็บในเครื่อง */ });
 setInterval(checkUpdate, 5 * 60 * 1000);
 checkUpdate();
 })();
