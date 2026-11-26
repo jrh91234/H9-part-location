@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261126-0947'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261126-1105'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)

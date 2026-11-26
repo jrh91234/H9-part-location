@@ -80,6 +80,7 @@ jobs:
             echo "js/config.js มี URL นี้อยู่แล้ว"
             exit 0
           fi
+          git checkout -- .clasp.json   # ขั้นก่อนหน้าเขียนทับไฟล์นี้ (scriptId จาก secret) — ไม่ commit
           git pull --rebase --quiet origin main
           sed -i "s|API_URL: '[^']*'|API_URL: '${URL}'|" js/config.js
           python3 tools/bump-version.py
