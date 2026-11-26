@@ -185,3 +185,18 @@ a.btn { text-decoration: none; color: inherit; display: block; }
 @keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
 #camStatus { margin-top: 10px; }
 #camStatus .ck-cur .big { font-size: 28px; }
+.ck-pend { border-radius: 14px; border: 2px solid var(--blue); background: var(--card); padding: 12px; margin-bottom: 10px; text-align: center; }
+.ck-pend.ln4 { border-color: var(--l4); } .ck-pend.ln5 { border-color: var(--l5); } .ck-pend.ln1 { border-color: var(--l1); }
+.ck-pend .pp { font-size: 15px; text-align: left; overflow-wrap: anywhere; margin-bottom: 6px; }
+.ck-pend .lbl { font-size: 13px; color: var(--muted); }
+.ck-pend .big { font-size: 42px; font-weight: 700; letter-spacing: 1px; line-height: 1.1; color: var(--blue); }
+.ck-pend.ln4 .big { color: var(--l4); } .ck-pend.ln5 .big { color: var(--l5); } .ck-pend.ln1 .big { color: var(--l1); }
+.ck-pend .sub { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.ck-btns .btn { padding: 16px 8px; font-size: 18px; font-weight: 700; }
+.btn.ck-yes { background: var(--green); border-color: var(--green); color: #fff; }
+.btn.ck-no { background: var(--red); border-color: var(--red); color: #fff; }
+.ck-ng { text-align: left; margin-top: 8px; background: var(--red-soft); border-radius: 10px; padding: 10px; }
+.ck-ngrow { display: flex; gap: 8px; margin-top: 6px; }
+.ck-ngrow input { flex: 1; min-width: 0; font-size: 18px; padding: 10px; border: 2px solid var(--line); border-radius: 10px; font-family: inherit; }
+.ck-ngrow .btn { flex: none; }
+#camStatus .ck-pend .big { font-size: 34px; }

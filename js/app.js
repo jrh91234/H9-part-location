@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261126-0733'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261126-0738'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -348,105 +348,132 @@ function scrollToSlot() {
 }
 
 // ======================= ไล่เช็ค Part ↔ Location =======================
-// สแกนป้าย Location → สแกนป้าย Part ในช่องนั้น → ตรง ✅ / ไม่ตรง ❌ · ผลล่าสุดของแต่ละช่องเก็บในเครื่อง (localStorage)
+// ป้าย Location ไม่มี QR → สแกนป้าย Part → แอปบอกว่า "ควรอยู่ช่องไหน" → ดูช่องจริงแล้วกด ✅ ยืนยัน / ❌ ไม่ตรง (ระบุช่องที่พบได้)
+// ผลล่าสุดของแต่ละ Location เก็บในเครื่อง (localStorage)
 var CK = (function () {
-  try { var d = JSON.parse(store('h9pl_check') || 'null'); if (d && d.rec) return d; } catch (e) { /* ข้อมูลเสีย → เริ่มใหม่ */ }
-  return { cur: '', rec: {}, last: null, by: '' };
+  try { var d = JSON.parse(store('h9pl_check2') || 'null'); if (d && d.rec) return d; } catch (e) { /* ข้อมูลเสีย → เริ่มใหม่ */ }
+  return { rec: {}, pend: null, last: null };
 })();
 var ALL_LOCS = PARTS.filter(function (p) { return p.loc; }).sort(locOrder).map(function (p) { return p.loc; });
-var CK_LBL = { ok: '✅ ตรง', ng: '❌ ไม่ตรง', unk: '❓ ไม่พบในรายการ', empty: '⬜ ช่องว่าง' };
-function saveCheck() { store('h9pl_check', JSON.stringify(CK)); }
+var CK_LBL = { ok: '✅ ตรง', ng: '❌ ไม่ตรง', empty: '⬜ ช่องว่าง' };
+function saveCheck() { store('h9pl_check2', JSON.stringify(CK)); }
 function locExists(l) { var m = l && l.match(/^H9-L(\d+)-(\d+)$/); return !!(m && LEVELS[+m[1]] && +m[2] <= LEVELS[+m[1]]); }
-// หา Location จากข้อความที่สแกน (ป้าย Location / QR ลิงก์ #q= / คำใดคำหนึ่ง)
-function scanLoc(text) {
-  var t = String(text || ''), lq = t.match(/#q=([^&\s]+)/);
-  if (lq) { try { t = decodeURIComponent(lq[1]); } catch (e) { t = lq[1]; } }
-  var l = normLoc(t); if (locExists(l)) return l;
-  var toks = t.toUpperCase().split(/[^A-Z0-9\-]+/);
-  for (var i = 0; i < toks.length; i++) { l = normLoc(toks[i]); if (locExists(l)) return l; }
-  return '';
-}
-function nextLoc(loc) {
-  var i = ALL_LOCS.indexOf(loc);
-  return i >= 0 && i < ALL_LOCS.length - 1 ? ALL_LOCS[i + 1] : '';
-}
+function shortLoc(l) { return String(l || '').replace(/^H9-/, ''); }
 function ckStats() {
-  var st = { ok: 0, ng: 0, unk: 0, empty: 0, done: 0 };
-  ALL_LOCS.forEach(function (l) { var r = CK.rec[l]; if (r) { st[r.st]++; st.done++; } });
+  var st = { ok: 0, ng: 0, empty: 0, done: 0 };
+  ALL_LOCS.forEach(function (l) { var r = CK.rec[l]; if (r && st[r.st] !== undefined) { st[r.st]++; st.done++; } });
   return st;
 }
-function partTxt(p) { return p.code + ' · ' + p.name; }
 
-// ผลการสแกน 1 ครั้ง → คืน class สำหรับไฟกระพริบในกล้อง (ok / err / loc)
+// สแกน/พิมพ์ 1 ครั้ง → คืน class ไฟกระพริบในกล้อง (ok / err / loc)
 function checkScan(text) {
   text = String(text || '').trim(); if (!text) return '';
-  var loc = scanLoc(text);
-  if (loc) {
-    CK.cur = loc; CK.last = { type: 'loc', loc: loc }; saveCheck(); beep(true);
-    return 'loc';
+  // พิมพ์ Location เอง (เช่น L3-05) → เปิดช่องนั้นให้ยืนยันด้วยตา
+  var lq = text.match(/#q=([^&\s]+)/), raw = text;
+  if (lq) { try { raw = decodeURIComponent(lq[1]); } catch (e) { raw = lq[1]; } }
+  var l = normLoc(raw);
+  if (locExists(l)) { openLoc(l); beep(true); return 'loc'; }
+  var r = resolveScan(text);
+  if (!r) { CK.pend = null; CK.last = { type: 'unk', text: text }; saveCheck(); beep(false); return 'err'; }
+  var cand = r.parts.filter(function (p) { return p.loc; });
+  if (!cand.length) {
+    CK.pend = null; CK.last = { type: 'wait', text: text, parts: r.parts.map(function (p) { return p.i; }) }; saveCheck(); beep(false); return 'err';
   }
-  if (!CK.cur) { CK.last = { type: 'need', text: text }; saveCheck(); beep(false); return 'err'; }
-  var r = resolveScan(text), exp = byLoc[CK.cur], st;
-  if (!r) st = 'unk';
-  else if (exp && r.parts.indexOf(exp) >= 0) st = 'ok';
-  else st = 'ng';
-  var rec = { st: st, text: text.slice(0, 120), at: Date.now(),
-    got: r ? r.parts.map(function (p) { return p.i; }) : [] };
-  CK.rec[CK.cur] = rec;
-  CK.last = { type: 'res', loc: CK.cur };
-  saveCheck(); beep(st === 'ok');
-  return st === 'ok' ? 'ok' : 'err';
+  CK.pend = { text: text.slice(0, 120), cand: cand.map(function (p) { return p.i; }), ng: '' };
+  CK.last = null; saveCheck(); beep(true);
+  return 'loc';
 }
-function markEmpty() {
-  if (!CK.cur) return;
-  CK.rec[CK.cur] = { st: 'empty', text: '', at: Date.now(), got: [] };
-  CK.last = { type: 'res', loc: CK.cur }; saveCheck();
+// เลือกช่องเอง (แตะผัง / รายการ / พิมพ์ Location) → ยืนยันด้วยตาโดยไม่ต้องสแกน
+function openLoc(loc) {
+  var p = byLoc[loc];
+  CK.pend = p ? { text: '', cand: [p.i], ng: '', manual: true } : null;
+  CK.last = p ? null : { type: 'noloc', loc: loc };
+  saveCheck();
+}
+function confirmLoc(loc, st, found) {
+  var p = byLoc[loc], pend = CK.pend || {};
+  CK.rec[loc] = { st: st, at: Date.now(), text: pend.text || '', got: p ? [p.i] : [], found: found || '' };
+  CK.pend = null; CK.last = { type: 'res', loc: loc }; saveCheck();
+  beep(st === 'ok');
 }
 
-function ckCurHtml() {
-  if (!CK.cur) return '<div class="ck-cur none"><div class="lbl">Location ที่กำลังเช็ค</div><div class="big">—</div>' +
-    '<div class="sub">สแกนป้าย Location หรือพิมพ์ เช่น <b>L3-05</b></div></div>';
-  var exp = byLoc[CK.cur], r = CK.rec[CK.cur];
-  return '<div class="ck-cur ' + (exp ? lnCls(exp) : '') + '"><div class="lbl">Location ที่กำลังเช็ค' +
-      (r ? ' · <span class="ck-chip ' + r.st + '">' + CK_LBL[r.st] + '</span>' : '') + '</div>' +
-    '<div class="big">' + esc(CK.cur) + '</div>' +
-    '<div class="sub">ควรเป็น: ' + (exp ? '<b>' + esc(exp.code) + '</b> · ' + esc(exp.name) : '<b>ไม่มี Part ในรายการ</b>') + '</div></div>';
+function ckPendHtml(inCam) {
+  var P = CK.pend;
+  if (!P) return ckLastHtml();
+  return P.cand.map(function (i) {
+    var p = PARTS[i], prev = CK.rec[p.loc];
+    var ng = P.ng === p.loc;
+    return '<div class="ck-pend ' + lnCls(p) + '">' +
+      '<div class="pp">📦 <b>' + esc(p.code) + '</b> · ' + esc(p.name) + (p.spec ? ' <span class="muted">(' + esc(p.spec) + ')</span>' : '') + '</div>' +
+      '<div class="lbl">' + (P.manual ? 'ช่องนี้ควรมี Part ข้างบน' : 'ควรอยู่ที่') +
+        (prev ? ' · <span class="ck-chip ' + prev.st + '">เคยเช็ค: ' + CK_LBL[prev.st] + '</span>' : '') + '</div>' +
+      '<div class="big">' + esc(p.loc) + '</div>' +
+      '<div class="sub">ชั้น L' + p.lv + ' · ช่องที่ ' + p.col + ' · Line ' + esc(p.line) + '</div>' +
+      (ng
+        ? '<div class="ck-ng"><div class="small">พบ Part นี้อยู่ที่ช่องไหน? (ไม่ทราบ กด "ไม่ระบุ")</div>' +
+            '<div class="ck-ngrow"><input id="ckFound" type="text" autocapitalize="characters" autocomplete="off" placeholder="เช่น L3-07">' +
+            '<button class="btn primary" data-ckact="saveng" data-loc="' + esc(p.loc) + '">บันทึก</button></div>' +
+            '<div class="actions"><button class="btn" data-ckact="saveng0" data-loc="' + esc(p.loc) + '">ไม่ระบุ</button>' +
+            '<button class="btn" data-ckact="cancelng">ยกเลิก</button></div></div>'
+        : '<div class="actions ck-btns"><button class="btn ck-yes" data-ckact="ok" data-loc="' + esc(p.loc) + '">✅ ยืนยัน ตรง</button>' +
+            '<button class="btn ck-no" data-ckact="ng" data-loc="' + esc(p.loc) + '">❌ ไม่ตรง</button></div>' +
+            (P.manual ? '<div class="actions"><button class="btn" data-ckact="empty" data-loc="' + esc(p.loc) + '">⬜ ช่องว่าง (ไม่มีของ)</button></div>' : '')) +
+      '</div>';
+  }).join('') + (P.cand.length > 1 ? '<div class="small muted center">Spec นี้มีหลายรหัส — ยืนยันเฉพาะช่องที่ตรงกับของจริง</div>' : '');
 }
 function ckLastHtml() {
   var L = CK.last;
-  if (!L) return '<div class="ck-res idle">① สแกนป้าย <b>Location</b> → ② สแกนป้าย <b>Part</b> ในช่องนั้น</div>';
-  if (L.type === 'need') return '<div class="ck-res err"><div class="h">⚠️ ยังไม่ได้เลือก Location</div>สแกนป้าย Location ก่อน แล้วค่อยสแกน Part</div>';
-  if (L.type === 'loc') return '<div class="ck-res loc"><div class="h">📍 ' + esc(L.loc) + '</div>สแกนป้าย Part ที่อยู่ในช่องนี้ได้เลย</div>';
-  var r = CK.rec[L.loc], exp = byLoc[L.loc]; if (!r) return '';
-  if (r.st === 'empty') return '<div class="ck-res warn"><div class="h">⬜ บันทึกว่าช่องว่าง</div>' + esc(L.loc) + (exp ? ' (ควรมี ' + esc(exp.code) + ')' : '') + '</div>';
-  if (r.st === 'ok') return '<div class="ck-res ok"><div class="h">✅ ตรง Location</div>' + esc(L.loc) + ' · ' + esc(exp ? partTxt(exp) : '') + '</div>';
-  var got = r.got.map(function (i) { return PARTS[i]; });
-  return '<div class="ck-res err"><div class="h">' + (r.st === 'unk' ? '❓ ไม่พบ Part นี้ในรายการ' : '❌ ไม่ตรง Location') + '</div>' +
-    (got.length ? got.map(function (p) {
-      return 'สแกนได้ <b>' + esc(p.code) + '</b> · ' + esc(p.name) + '<br>→ ควรอยู่ที่ <b>' + esc(p.loc || 'รอจัดพื้นที่') + '</b>';
-    }).join('<hr>') : 'สแกนได้: <b>' + esc(r.text) + '</b>') +
-    '<div class="exp">ช่อง ' + esc(L.loc) + ' ควรเป็น: ' + (exp ? '<b>' + esc(exp.code) + '</b> · ' + esc(exp.name) : 'ไม่มี Part ในรายการ') + '</div></div>';
+  if (!L) return '<div class="ck-res idle"><div class="h">📦 สแกนป้าย Part</div>แอปจะบอกว่า Part ควรอยู่ช่องไหน → ดูช่องจริง แล้วกด <b>✅ ยืนยัน</b> หรือ <b>❌ ไม่ตรง</b></div>';
+  if (L.type === 'unk') return '<div class="ck-res err"><div class="h">❓ ไม่พบ Part นี้ในรายการ</div>สแกนได้: <b>' + esc(L.text) + '</b></div>';
+  if (L.type === 'noloc') return '<div class="ck-res warn"><div class="h">' + esc(L.loc) + '</div>ช่องนี้ไม่มี Part ในรายการ</div>';
+  if (L.type === 'wait') return '<div class="ck-res warn"><div class="h">⏳ Part นี้ยังรอจัดพื้นที่</div>' +
+    L.parts.map(function (i) { return '<b>' + esc(PARTS[i].code) + '</b> · ' + esc(PARTS[i].name); }).join('<br>') + '<br>ยังไม่มี Location ในรายการ</div>';
+  var r = CK.rec[L.loc], p = byLoc[L.loc]; if (!r) return '';
+  var who = p ? esc(p.code) + ' · ' + esc(p.name) : '';
+  if (r.st === 'ok') return '<div class="ck-res ok"><div class="h">✅ บันทึก: ตรง</div>' + esc(L.loc) + ' · ' + who + '<div class="small">สแกน Part ถัดไปได้เลย</div></div>';
+  if (r.st === 'empty') return '<div class="ck-res warn"><div class="h">⬜ บันทึก: ช่องว่าง</div>' + esc(L.loc) + ' (ควรมี ' + who + ')</div>';
+  return '<div class="ck-res err"><div class="h">❌ บันทึก: ไม่ตรง</div>' + who + '<br>ควรอยู่ ' + esc(L.loc) + ' → พบที่ <b>' + esc(r.found || 'ไม่ระบุ') + '</b>' +
+    '<div class="small">สแกน Part ถัดไปได้เลย</div></div>';
 }
-function ckCamStatus() {
-  var nx = nextLoc(CK.cur), st = ckStats();
-  return ckCurHtml() + ckLastHtml() +
-    '<div class="center small muted">เช็คแล้ว ' + st.done + '/' + ALL_LOCS.length + ' · ✅ ' + st.ok + ' · ❌ ' + (st.ng + st.unk) + ' · ⬜ ' + st.empty + '</div>' +
-    (CK.cur ? '<div class="actions"><button class="btn" id="ckEmptyC">⬜ ช่องว่าง</button>' +
-      (nx ? '<button class="btn" id="ckNextC">➡ ' + esc(nx.replace(/^H9-/, '')) + '</button>' : '') + '</div>' : '');
+function ckSummaryHtml() {
+  var st = ckStats();
+  return '<div class="center small muted">เช็คแล้ว ' + st.done + '/' + ALL_LOCS.length + ' · ✅ ' + st.ok + ' · ❌ ' + st.ng + ' · ⬜ ' + st.empty + '</div>';
 }
-function bindCamStatus() {
-  if ($('ckEmptyC')) $('ckEmptyC').onclick = function () { markEmpty(); refreshCam(); };
-  if ($('ckNextC')) $('ckNextC').onclick = function () { CK.cur = nextLoc(CK.cur); CK.last = { type: 'loc', loc: CK.cur }; saveCheck(); refreshCam(); };
+function ckCamStatus() { return ckPendHtml(true) + ckSummaryHtml(); }
+function refreshCheck() {
+  if ($('camStatus')) $('camStatus').innerHTML = ckCamStatus();
+  else if (S.tab === 'check') renderCheck();
 }
-function refreshCam() { if ($('camStatus')) { $('camStatus').innerHTML = ckCamStatus(); bindCamStatus(); } }
+// ปุ่มในการ์ด (ทั้งในหน้าแท็บ และใต้กล้อง) — ใช้ตัวจับคลิกตัวเดียว
+document.addEventListener('click', function (e) {
+  var b = e.target.closest && e.target.closest('[data-ckact]'); if (!b) return;
+  var act = b.getAttribute('data-ckact'), loc = b.getAttribute('data-loc');
+  if (act === 'ok') confirmLoc(loc, 'ok');
+  else if (act === 'empty') confirmLoc(loc, 'empty');
+  else if (act === 'ng') { CK.pend.ng = loc; saveCheck(); refreshCheck(); setTimeout(function () { if ($('ckFound')) $('ckFound').focus(); }, 30); return; }
+  else if (act === 'cancelng') { CK.pend.ng = ''; saveCheck(); }
+  else if (act === 'saveng' || act === 'saveng0') {
+    var v = act === 'saveng' && $('ckFound') ? $('ckFound').value.trim() : '';
+    var nl = normLoc(v);
+    if (v && !locExists(nl)) { toast('รูปแบบช่องไม่ถูกต้อง เช่น L3-07', 2500); return; }
+    confirmLoc(loc, 'ng', nl);
+  }
+  refreshCheck();
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && e.target && e.target.id === 'ckFound') {
+    e.preventDefault(); var b = document.querySelector('[data-ckact="saveng"]'); if (b) b.click();
+  }
+});
 
 function ckRackHtml() {
+  var cur = CK.pend && CK.pend.cand.length === 1 ? PARTS[CK.pend.cand[0]].loc : '';
   var rows = LV_LIST.map(function (lv) {
     var cells = '';
     for (var c = 1; c <= MAX_COL; c++) {
       var loc = 'H9-L' + lv + '-' + ('0' + c).slice(-2), r = CK.rec[loc];
-      var cls = c > LEVELS[lv] ? 'void' : r ? 'ck-' + r.st : byLoc[loc] ? '' : 'void';
-      cells += '<div class="rc ' + cls + (loc === CK.cur ? ' on' : '') + '"' + (cls === 'void' ? '' : ' data-ck="' + loc + '"') + '></div>';
+      var cls = c > LEVELS[lv] || !byLoc[loc] ? 'void' : r ? 'ck-' + r.st : '';
+      cells += '<div class="rc ' + cls + (loc === cur ? ' on' : '') + '"' + (cls === 'void' ? '' : ' data-ck="' + loc + '"') + '></div>';
     }
     return '<div class="rack-row"><div class="rack-lv">L' + lv + '</div><div class="rack-cells">' + cells + '</div></div>';
   }).join('');
@@ -454,29 +481,25 @@ function ckRackHtml() {
 }
 
 function renderCheck() {
-  var st = ckStats(), pct = ALL_LOCS.length ? Math.round(st.done * 100 / ALL_LOCS.length) : 0, nx = nextLoc(CK.cur);
+  var st = ckStats(), N = ALL_LOCS.length || 1, pct = Math.round(st.done * 100 / N);
   var f = S.ckf || 'ng';
   var list = f === 'todo'
     ? ALL_LOCS.filter(function (l) { return !CK.rec[l]; })
-    : Object.keys(CK.rec).filter(function (l) { var r = CK.rec[l]; return f === 'all' || r.st === 'ng' || r.st === 'unk' || (f === 'ng' && r.st === 'empty'); })
+    : Object.keys(CK.rec).filter(function (l) { return f === 'all' || CK.rec[l].st !== 'ok'; })
         .sort(function (a, b) { return CK.rec[b].at - CK.rec[a].at; });
   $('main').innerHTML =
-    '<div class="ck-prog"><div class="ck-bar"><i class="ok" style="width:' + (st.ok * 100 / (ALL_LOCS.length || 1)) + '%"></i>' +
-      '<i class="ng" style="width:' + ((st.ng + st.unk) * 100 / (ALL_LOCS.length || 1)) + '%"></i>' +
-      '<i class="empty" style="width:' + (st.empty * 100 / (ALL_LOCS.length || 1)) + '%"></i></div>' +
+    '<div class="ck-prog"><div class="ck-bar"><i class="ok" style="width:' + (st.ok * 100 / N) + '%"></i>' +
+      '<i class="ng" style="width:' + (st.ng * 100 / N) + '%"></i><i class="empty" style="width:' + (st.empty * 100 / N) + '%"></i></div>' +
       '<div class="ck-nums"><span>เช็คแล้ว <b>' + st.done + '</b>/' + ALL_LOCS.length + ' (' + pct + '%)</span>' +
-      '<span>✅ ' + st.ok + '</span><span>❌ ' + (st.ng + st.unk) + '</span><span>⬜ ' + st.empty + '</span></div></div>' +
-    ckCurHtml() +
-    '<div class="search ck-search"><div class="search-wrap"><input id="ckq" type="text" enterkeyhint="go" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ยิงสแกน / พิมพ์ แล้ว Enter"></div>' +
+      '<span>✅ ' + st.ok + '</span><span>❌ ' + st.ng + '</span><span>⬜ ' + st.empty + '</span></div></div>' +
+    '<div class="search ck-search"><div class="search-wrap"><input id="ckq" type="text" enterkeyhint="go" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="สแกน Part / พิมพ์รหัส"></div>' +
       '<button class="scan-btn" id="ckCam">📷 สแกน</button></div>' +
-    ckLastHtml() +
-    (CK.cur ? '<div class="actions ck-act"><button class="btn" id="ckEmpty">⬜ ช่องว่าง</button>' +
-      (nx ? '<button class="btn primary" id="ckNext">➡ ช่องถัดไป ' + esc(nx.replace(/^H9-/, '')) + '</button>' : '') + '</div>' : '') +
+    ckPendHtml(false) +
     '<div class="legend"><span><i style="background:var(--green)"></i>ตรง</span><span><i style="background:var(--red)"></i>ไม่ตรง</span>' +
-      '<span><i style="background:#f2b544"></i>ว่าง</span><span><i style="background:var(--line)"></i>ยังไม่เช็ค</span><span>· แตะช่องเพื่อเลือก</span></div>' +
+      '<span><i style="background:#f2b544"></i>ว่าง</span><span><i style="background:var(--line)"></i>ยังไม่เช็ค</span><span>· แตะช่องเพื่อเช็คด้วยตา</span></div>' +
     ckRackHtml() +
     '<div class="filters">' +
-      '<button class="fchip' + (f === 'ng' ? ' active' : '') + '" data-ckf="ng">❌ ไม่ตรง / ว่าง</button>' +
+      '<button class="fchip' + (f === 'ng' ? ' active' : '') + '" data-ckf="ng">❌ ไม่ตรง / ว่าง ' + (st.ng + st.empty) + '</button>' +
       '<button class="fchip' + (f === 'all' ? ' active' : '') + '" data-ckf="all">ผลทั้งหมด ' + st.done + '</button>' +
       '<button class="fchip' + (f === 'todo' ? ' active' : '') + '" data-ckf="todo">ยังไม่เช็ค ' + (ALL_LOCS.length - st.done) + '</button></div>' +
     '<div id="ckList">' + (list.length ? list.slice(0, 150).map(ckRow).join('') : '<div class="msg idle">ไม่มีรายการ</div>') +
@@ -490,26 +513,19 @@ function renderCheck() {
     checkScan(v); renderCheck(); if ($('ckq')) $('ckq').focus();
   };
   $('ckCam').onclick = function () {
-    openCameraScanner(null, { title: 'ไล่เช็ค (สแกนต่อเนื่อง)', status: ckCamStatus,
-      onEach: function (t) { var c = checkScan(t); setTimeout(bindCamStatus, 0); return c; } });
-    onModalClose = (function (stopCam) { return function () { stopCam && stopCam(); renderCheck(); }; })(onModalClose);
-    bindCamStatus();
+    openCameraScanner(null, { title: 'ไล่เช็ค — สแกนป้าย Part', status: ckCamStatus, onEach: checkScan });
+    onModalClose = (function (stopCam) { return function () { if (stopCam) stopCam(); renderCheck(); }; })(onModalClose);
   };
-  if ($('ckEmpty')) $('ckEmpty').onclick = function () { markEmpty(); renderCheck(); };
-  if ($('ckNext')) $('ckNext').onclick = function () { CK.cur = nx; CK.last = { type: 'loc', loc: nx }; saveCheck(); renderCheck(); };
-  Array.prototype.forEach.call(document.querySelectorAll('[data-ck]'), function (b) {
-    b.onclick = function () { CK.cur = b.getAttribute('data-ck'); CK.last = { type: 'loc', loc: CK.cur }; saveCheck(); renderCheck(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-  });
+  function pick(loc) { openLoc(loc); renderCheck(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-ck]'), function (b) { b.onclick = function () { pick(b.getAttribute('data-ck')); }; });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-ckrow]'), function (b) { b.onclick = function () { pick(b.getAttribute('data-ckrow')); }; });
   Array.prototype.forEach.call(document.querySelectorAll('[data-ckf]'), function (b) {
     b.onclick = function () { S.ckf = b.getAttribute('data-ckf'); renderCheck(); };
-  });
-  Array.prototype.forEach.call(document.querySelectorAll('[data-ckrow]'), function (b) {
-    b.onclick = function () { CK.cur = b.getAttribute('data-ckrow'); CK.last = CK.rec[CK.cur] ? { type: 'res', loc: CK.cur } : { type: 'loc', loc: CK.cur }; saveCheck(); renderCheck(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   });
   $('ckCsv').onclick = exportCheck;
   $('ckReset').onclick = function () {
     if (!confirm('ล้างผลการเช็คทั้งหมดในเครื่องนี้ แล้วเริ่มใหม่?\n(แนะนำให้ Export เก็บไว้ก่อน)')) return;
-    CK = { cur: '', rec: {}, last: null, by: CK.by }; saveCheck(); renderCheck();
+    CK = { rec: {}, pend: null, last: null }; saveCheck(); renderCheck();
   };
 }
 function fmtTime(t) {
@@ -517,24 +533,20 @@ function fmtTime(t) {
   return z(d.getDate()) + '/' + z(d.getMonth() + 1) + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
 }
 function ckRow(loc) {
-  var r = CK.rec[loc], exp = byLoc[loc];
-  var got = r ? r.got.map(function (i) { return PARTS[i]; }) : [];
+  var r = CK.rec[loc], p = byLoc[loc];
   return '<button class="ck-row ' + (r ? r.st : 'todo') + '" data-ckrow="' + esc(loc) + '">' +
-    '<div class="l">' + esc(loc.replace(/^H9-/, '')) + '</div><div class="m">' +
+    '<div class="l">' + esc(shortLoc(loc)) + '</div><div class="m">' +
     '<div>' + (r ? '<span class="ck-chip ' + r.st + '">' + CK_LBL[r.st] + '</span> <span class="muted small">' + fmtTime(r.at) + '</span>' : '<span class="muted">ยังไม่เช็ค</span>') + '</div>' +
-    '<div class="small">ควรเป็น: <b>' + esc(exp ? exp.code : '-') + '</b> ' + esc(exp ? exp.name : '') + '</div>' +
-    (r && (r.st === 'ng' || r.st === 'unk') ? '<div class="small bad">สแกนได้: ' + (got.length ? got.map(function (p) {
-      return '<b>' + esc(p.code) + '</b> (ควรอยู่ ' + esc(p.loc || 'รอจัดพื้นที่') + ')';
-    }).join(', ') : esc(r.text)) + '</div>' : '') +
+    '<div class="small"><b>' + esc(p ? p.code : '-') + '</b> ' + esc(p ? p.name : '') + '</div>' +
+    (r && r.st === 'ng' ? '<div class="small bad">พบอยู่ที่: <b>' + esc(r.found || 'ไม่ระบุ') + '</b></div>' : '') +
     '</div></button>';
 }
 function exportCheck() {
-  var head = ['Location', 'ผลการเช็ค', 'Part ที่ควรอยู่ (Code)', 'Spec', 'ชื่อ Part', 'Line', 'สแกนได้ (Code)', 'ชื่อที่สแกนได้', 'Part ที่สแกนได้ควรอยู่ที่', 'ข้อความที่สแกน', 'เวลา'];
-  var rows = ALL_LOCS.concat(Object.keys(CK.rec).filter(function (l) { return ALL_LOCS.indexOf(l) < 0; })).map(function (loc) {
-    var r = CK.rec[loc], exp = byLoc[loc], got = r ? r.got.map(function (i) { return PARTS[i]; }) : [];
-    return [loc, r ? CK_LBL[r.st].replace(/^\S+\s/, '') : 'ยังไม่เช็ค', exp ? exp.code : '', exp ? exp.spec : '', exp ? exp.name : '', exp ? exp.line : '',
-      got.map(function (p) { return p.code; }).join(' / '), got.map(function (p) { return p.name; }).join(' / '),
-      got.map(function (p) { return p.loc || 'รอจัดพื้นที่'; }).join(' / '), r ? r.text : '', r ? new Date(r.at).toLocaleString('th-TH') : ''];
+  var head = ['Location', 'ผลการเช็ค', 'Child Item Code', 'Specification', 'ชื่อ Part', 'Line', 'กลุ่ม Part', 'พบอยู่ที่ (ถ้าไม่ตรง)', 'ข้อความที่สแกน', 'เวลา'];
+  var rows = ALL_LOCS.map(function (loc) {
+    var r = CK.rec[loc], p = byLoc[loc];
+    return [loc, r ? CK_LBL[r.st].replace(/^\S+\s/, '') : 'ยังไม่เช็ค', p.code, p.spec, p.name, p.line, p.grp,
+      r && r.st === 'ng' ? (r.found || 'ไม่ระบุ') : '', r ? r.text : '', r ? new Date(r.at).toLocaleString('th-TH') : ''];
   });
   var csv = '﻿' + [head].concat(rows).map(function (row) {
     return row.map(function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(',');
