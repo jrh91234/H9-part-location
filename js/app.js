@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261126-0707'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261126-0717'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -336,9 +336,10 @@ function scrollToSlot() {
 }
 
 // ======================= สแกนด้วยกล้อง =======================
-// ลำดับตัวอ่าน: 1) ตัวอ่านในเบราว์เซอร์ (Android Chrome) → 2) zxing (WebAssembly, iPhone) → 3) jsQR (QR อย่างเดียว)
+// ลำดับตัวอ่าน: 1) ตัวอ่านในเบราว์เซอร์ (Android Chrome) → 2) zxing (WebAssembly, iPhone) → 3) jsQR · เสริมด้วยตัวกู้ QR มุมขาด (js/partialqr.js)
 var ZXING_URL = 'https://cdn.jsdelivr.net/npm/barcode-detector@2.2.2/dist/es/pure.min.js';
-var JSQR_URL = 'js/vendor/jsqr.js?v=2';
+var JSQR_URL = 'js/vendor/jsqr.js?v=2'; // jsQR ในเครื่อง (เปิดส่วนภายในให้ตัวกู้ QR ใช้)
+var PARTIALQR_URL = 'js/partialqr.js?v=1';
 var SCAN_FORMATS = ['qr_code', 'code_128', 'code_39', 'ean_13', 'data_matrix'];
 var CROP_RATIO = 0.72;
 var IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -376,12 +377,31 @@ function makeJsqr() {
     } };
   });
 }
+// ตัวกู้ QR มุมขาด/ไม่ชัด (เหมือน pda-location-scan): หาสี่เหลี่ยมมุมที่เหลือ 2 มุม → คำนวณมุมที่หาย → ให้ Error Correction ของ QR กู้ข้อมูล
+// ใช้ CPU มากกว่า → เว้นระยะตามเวลาที่ใช้จริง (อย่างน้อย 250 ms) และย่อภาพไม่เกิน 480 px
+function makePartial() {
+  return loadScriptOnce(JSQR_URL).then(function () { return loadScriptOnce(PARTIALQR_URL); }).then(function () {
+    if (!window.jsQR || !window.jsQR._i || !window.decodePartialQR) throw new Error('no partial');
+    var last = 0, gap = 250, cv = document.createElement('canvas');
+    return { src: 'crop', detect: function (src) {
+      var now = Date.now(); if (now - last < gap) return Promise.resolve(null); last = now;
+      var k = Math.min(1, 480 / Math.max(src.width, src.height)), w = Math.round(src.width * k), h = Math.round(src.height * k);
+      cv.width = w; cv.height = h;
+      var g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(src, 0, 0, w, h);
+      var r = window.decodePartialQR(window.jsQR, g.getImageData(0, 0, w, h).data, w, h);
+      gap = Math.max(250, (Date.now() - now) * 3); // เครื่องช้า → เว้นนานขึ้น กล้องไม่หน่วง
+      return Promise.resolve(r && r.data ? r.data : null);
+    } };
+  });
+}
+// Android: ตัวอ่านในเบราว์เซอร์ + ตัวกู้ QR · iPhone/อื่นๆ: zxing (สำรอง jsQR) + ตัวอ่าน Apple ถ้ามี + ตัวกู้ QR — สลับใช้ทุกเฟรม
 function getDetectors() {
   if (getDetectors.p) return getDetectors.p;
   getDetectors.p = makeNative().catch(function () { return null; }).then(function (nat) {
-    if (nat && !IS_IOS) return [nat];
-    return makeZxing().catch(function () { return makeJsqr(); }).catch(function () { return null; }).then(function (z) {
-      var list = [nat, z].filter(Boolean);
+    var part = makePartial().catch(function () { return null; });
+    if (nat && !IS_IOS) return part.then(function (p) { return [nat, p].filter(Boolean); });
+    return Promise.all([makeZxing().catch(function () { return makeJsqr(); }).catch(function () { return null; }), part]).then(function (zz) {
+      var list = [nat, zz[0], zz[1]].filter(Boolean);
       if (!list.length) throw new Error('โหลดตัวอ่าน QR ไม่ได้ (ต้องต่ออินเทอร์เน็ต)');
       return list;
     });
