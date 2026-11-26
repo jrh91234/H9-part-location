@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261126-0717'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261126-0721'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -120,6 +120,8 @@ function search(q) {
 // ข้อความจากเครื่องสแกน/กล้อง → หา Part ที่ตรง
 // 1) ทั้งข้อความเป็น Location / Code / Spec  2) แยกเป็นคำแล้วหาทีละคำ  3) หารหัสที่ซ่อนอยู่ในข้อความยาว (QR หลายช่อง)
 function resolveScan(text) {
+  var lq = String(text || '').match(/#q=([^&\s]+)/);
+  if (lq) { try { text = decodeURIComponent(lq[1]); } catch (e) { text = lq[1]; } }
   var U = String(text || '').toUpperCase().replace(/[\r\n\t]+/g, ' ').trim();
   if (!U) return null;
   function by(t) {
@@ -168,7 +170,8 @@ function recent() { try { return JSON.parse(store('h9pl_recent') || '[]'); } cat
 // ---------- หน้าจอ ----------
 function render() {
   $('app').innerHTML =
-    '<div class="top"><div class="brand">📍 H9 Part Location <span class="ver">v' + esc(APP_VERSION) + '</span></div></div>' +
+    '<div class="top"><div class="brand">📍 H9 Part Location <span class="ver">v' + esc(APP_VERSION) + '</span></div>' +
+      '<button class="chip" id="appQr" aria-label="QR ลิงก์เข้าหน้าเว็บ">🔗 QR แอป</button></div>' +
     '<div class="tabs">' +
       '<button data-tab="search" class="' + (S.tab === 'search' ? 'active' : '') + '">🔎 ค้นหา / สแกน</button>' +
       '<button data-tab="map" class="' + (S.tab === 'map' ? 'active' : '') + '">🗂 ผังชั้นวาง</button>' +
@@ -176,6 +179,9 @@ function render() {
   Array.prototype.forEach.call(document.querySelectorAll('[data-tab]'), function (b) {
     b.onclick = function () { setTab(b.getAttribute('data-tab')); };
   });
+  $('appQr').onclick = function () {
+    showQr(APP_URL, 'H9 Part Location', 'สแกน QR นี้ด้วยกล้องมือถือเพื่อเปิดแอปค้นหา Part ↔ Location');
+  };
   if (S.tab === 'search') renderSearch(); else renderMap();
 }
 function setTab(t) { S.tab = t; render(); window.scrollTo(0, 0); }
@@ -300,11 +306,16 @@ function showDetail(p) {
     '</div>' +
     '<div class="actions">' + (p.loc ? '<button class="btn" id="dMap">🗂 ดูในผัง</button>' : '') +
       '<button class="btn primary" id="dScan">📷 สแกนต่อ</button></div>' +
-    '<div class="actions"><button class="btn" id="dClose">ปิด</button></div>');
+    '<div class="actions"><button class="btn" id="dQr">🔗 QR ลิงก์</button><button class="btn" id="dClose">ปิด</button></div>');
   Array.prototype.forEach.call(document.querySelectorAll('[data-copy]'), function (b) {
     b.onclick = function () { copy(b.getAttribute('data-copy')); };
   });
   $('dClose').onclick = closeModal;
+  $('dQr').onclick = function () {
+    var key = p.loc || p.code;
+    showQr(APP_URL + '#q=' + encodeURIComponent(key), p.loc || p.code, (p.loc ? p.code + ' · ' : '') + p.name,
+      'สแกนแล้วเปิดหน้าเว็บที่ ' + (p.loc ? 'Location ' + p.loc : 'รหัส ' + p.code) + ' ทันที — พิมพ์แปะที่ช่องชั้นวางได้');
+  };
   $('dScan').onclick = function () { closeModal(); openCameraScanner(function (t) { handleScan(t, 'cam'); }); };
   if ($('dMap')) $('dMap').onclick = function () { closeModal(); S.mapLv = p.lv; S.mark = p.loc; setTab('map'); scrollToSlot(); };
 }
@@ -333,6 +344,60 @@ function renderMap() {
 }
 function scrollToSlot() {
   setTimeout(function () { var el = S.mark && $('s-' + S.mark); if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 60);
+}
+
+// ======================= QR ลิงก์เข้าหน้าเว็บ =======================
+// APP_URL = ที่อยู่หน้าเว็บนี้ (ตัด ?v= และ #… ออก) · ลิงก์ Part: APP_URL#q=H9-L3-05
+var APP_URL = location.href.replace(/[?#].*$/, '');
+var QRGEN_URL = 'js/vendor/qrcode.js?v=1';
+function makeQr(text) {
+  var q = window.qrcode(0, 'M'); q.addData(text, 'Byte'); q.make(); return q;
+}
+// วาด QR + ข้อความใต้ภาพลง canvas (ใช้ทั้งแสดง บันทึกรูป และพิมพ์)
+function qrCanvas(text, title, sub) {
+  var q = makeQr(text), n = q.getModuleCount(), cell = Math.max(6, Math.floor(600 / (n + 8))), m = cell * 4;
+  var size = n * cell + m * 2, lines = [title, sub].filter(Boolean), extra = lines.length ? 30 + lines.length * 44 : 0;
+  var c = document.createElement('canvas'); c.width = size; c.height = size + extra;
+  var g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#000';
+  for (var r = 0; r < n; r++) for (var k = 0; k < n; k++) if (q.isDark(r, k)) g.fillRect(m + k * cell, m + r * cell, cell, cell);
+  g.textAlign = 'center';
+  lines.forEach(function (t, i) {
+    g.font = (i === 0 ? '700 40px' : '400 28px') + ' Sarabun, sans-serif';
+    var s = String(t); while (s.length > 4 && g.measureText(s).width > size - 30) s = s.slice(0, -2);
+    if (s !== String(t)) s += '…';
+    g.fillText(s, size / 2, size + 10 + (i + 1) * 40);
+  });
+  return c;
+}
+function showQr(url, title, sub, hint) {
+  if (hint === undefined) { hint = sub; sub = ''; }
+  loadScriptOnce(QRGEN_URL).then(function () {
+    var c = qrCanvas(url, title, sub), png = c.toDataURL('image/png');
+    var fname = 'QR-' + String(title).replace(/[^\w-]+/g, '_') + '.png';
+    openModal('<h3>🔗 QR ลิงก์ ' + esc(title) + '</h3>' +
+      '<div class="qr-box"><img src="' + png + '" alt="QR"></div>' +
+      '<p class="center small muted">' + esc(hint) + '</p>' +
+      '<div class="qr-url">' + esc(url) + '</div>' +
+      '<div class="actions"><button class="btn" id="qCopy">📋 คัดลอกลิงก์</button>' +
+        (navigator.share ? '<button class="btn" id="qShare">📤 แชร์</button>' : '') + '</div>' +
+      '<div class="actions"><a class="btn center" id="qSave" href="' + png + '" download="' + esc(fname) + '">💾 บันทึกรูป</a>' +
+        '<button class="btn" id="qPrint">🖨 พิมพ์</button></div>' +
+      '<div class="actions"><button class="btn" id="qClose">ปิด</button></div>');
+    $('qClose').onclick = closeModal;
+    $('qCopy').onclick = function () { copy(url); };
+    if ($('qShare')) $('qShare').onclick = function () {
+      navigator.share({ title: 'H9 Part Location', text: title, url: url }).catch(function () {});
+    };
+    $('qPrint').onclick = function () {
+      var w = window.open('', '_blank');
+      if (!w) { toast('เบราว์เซอร์บล็อกหน้าต่างใหม่ — ใช้ปุ่มบันทึกรูปแทน', 3000); return; }
+      w.document.write('<!doctype html><meta charset="utf-8"><title>' + esc(title) + '</title>' +
+        '<style>body{margin:0;display:flex;justify-content:center;align-items:flex-start;padding:20px}img{width:80mm;max-width:100%}</style>' +
+        '<img src="' + png + '" onload="setTimeout(function(){print()},200)">');
+      w.document.close();
+    };
+  }, function () { toast('โหลดตัวสร้าง QR ไม่ได้', 3000); });
 }
 
 // ======================= สแกนด้วยกล้อง =======================
@@ -555,6 +620,10 @@ function checkUpdate() {
 var hq = decodeURIComponent((location.hash.match(/[#&]q=([^&]*)/) || [])[1] || '');
 render();
 if (hq) handleScan(hq, 'link');
+window.addEventListener('hashchange', function () {
+  var q = (location.hash.match(/[#&]q=([^&]*)/) || [])[1];
+  if (q) { closeModal(); handleScan(decodeURIComponent(q), 'link'); }
+});
 document.addEventListener('visibilitychange', function () { if (!document.hidden) checkUpdate(); });
 setInterval(checkUpdate, 5 * 60 * 1000);
 checkUpdate();
