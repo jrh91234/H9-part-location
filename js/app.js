@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261126-1139'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261126-1205'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -193,10 +193,49 @@ function pushRecent(t) {
 function recent() { try { return JSON.parse(store('h9pl_recent') || '[]'); } catch (e) { return []; } }
 
 // ---------- หน้าจอ ----------
+// ---------- ชื่อผู้ใช้ (บังคับกรอกก่อนใช้แอป · ใช้เป็นชื่อผู้เช็ค / ผู้เปลี่ยน Location) ----------
+function userName() { return (store('h9pl_editor') || '').trim(); }
+function validName(n) { n = String(n || '').trim(); return n.length >= 2 && !/^[0\-]+$/.test(n); }
+function renderNameGate() {
+  $('app').innerHTML =
+    '<div class="top"><div class="brand">📍 H9 Part Location <span class="ver">v' + esc(APP_VERSION) + '</span></div></div>' +
+    '<main><div class="set-card gate"><div class="gate-ic">👤</div><h3>กรอกชื่อผู้ใช้งานก่อนเริ่มใช้แอป</h3>' +
+      '<p class="small muted">ชื่อนี้จะถูกบันทึกเป็นผู้ไล่เช็ค และผู้เปลี่ยน Part ↔ Location</p>' +
+      '<input id="gateName" class="pin-in name-in" type="text" maxlength="40" autocomplete="name" placeholder="ชื่อ เช่น สมชาย">' +
+      '<p class="small center" id="gateMsg" style="color:var(--red)"></p>' +
+      '<button class="btn primary gate-btn" id="gateOk">เริ่มใช้งาน</button></div></main>';
+  var inp = $('gateName'); setTimeout(function () { inp.focus(); }, 50);
+  function ok() {
+    var v = inp.value.trim();
+    if (!validName(v)) { $('gateMsg').textContent = 'กรุณากรอกชื่อจริง อย่างน้อย 2 ตัวอักษร'; inp.focus(); return; }
+    store('h9pl_editor', v); render();
+  }
+  $('gateOk').onclick = ok;
+  inp.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); ok(); } };
+}
+function openUserMenu() {
+  openModal('<h3>👤 ผู้ใช้งาน</h3><div class="ed-cur"><div class="big" style="font-size:24px">' + esc(userName()) + '</div></div>' +
+    '<label class="small muted">เปลี่ยนชื่อ</label><input id="unName" class="ed-note" type="text" maxlength="40" value="' + esc(userName()) + '">' +
+    '<div class="actions"><button class="btn" id="unOut">🚪 ออก (เปลี่ยนคนใช้)</button><button class="btn primary" id="unSave">บันทึก</button></div>' +
+    '<div class="actions"><button class="btn" id="unClose">ปิด</button></div>');
+  $('unClose').onclick = closeModal;
+  $('unSave').onclick = function () {
+    var v = $('unName').value.trim();
+    if (!validName(v)) { toast('กรุณากรอกชื่ออย่างน้อย 2 ตัวอักษร', 2500); return; }
+    store('h9pl_editor', v); closeModal(); render(); toast('เปลี่ยนชื่อเป็น ' + v);
+  };
+  $('unOut').onclick = function () {
+    if (!confirm('ออกจากชื่อ ' + userName() + '?\nคนถัดไปต้องกรอกชื่อของตัวเองก่อนใช้งาน')) return;
+    store('h9pl_editor', ''); setAdminPin(''); closeModal(); S.tab = 'search'; render();
+  };
+}
+
 function render() {
+  if (!validName(userName())) { renderNameGate(); return; }
   $('app').innerHTML =
     '<div class="top"><div class="brand">📍 H9 Part Location <span class="ver">v' + esc(APP_VERSION) + '</span></div>' +
-      '<button class="chip" id="appQr" aria-label="QR ลิงก์เข้าหน้าเว็บ">🔗 QR</button>' +
+      '<button class="chip user" id="appUser" aria-label="ผู้ใช้งาน">👤 ' + esc(userName()) + '</button>' +
+      '<button class="chip" id="appQr" aria-label="QR ลิงก์เข้าหน้าเว็บ">🔗</button>' +
       '<button class="chip' + (S.tab === 'settings' ? ' on' : '') + '" id="appSet" aria-label="ตั้งค่า">⚙</button></div>' +
     '<div class="tabs">' +
       '<button data-tab="search" class="' + (S.tab === 'search' ? 'active' : '') + '">🔎 ค้นหา</button>' +
@@ -210,6 +249,7 @@ function render() {
     showQr(APP_URL, 'H9 Part Location', 'สแกน QR นี้ด้วยกล้องมือถือเพื่อเปิดแอปค้นหา Part ↔ Location');
   };
   $('appSet').onclick = function () { openSettings(); };
+  $('appUser').onclick = openUserMenu;
   if (S.tab === 'search') renderSearch(); else if (S.tab === 'check') renderCheck(); else if (S.tab === 'settings') renderSettings(); else renderMap();
 }
 function setTab(t) { S.tab = t; render(); window.scrollTo(0, 0); }
@@ -484,7 +524,7 @@ function openLoc(loc) {
 function confirmSide(loc, side, st, found) {
   var pend = CK.pend || {};
   var r = CK.rec[loc] = CK.rec[loc] || {};
-  r[side] = { st: st, at: Date.now(), text: pend.text || '', found: found || '' };
+  r[side] = { st: st, at: Date.now(), text: pend.text || '', found: found || '', by: userName() };
   if (CK.pend) CK.pend.ng = '';
   if (r.f && r.b) { CK.pend = null; CK.last = { type: 'res', loc: loc }; }
   saveCheck();
@@ -651,13 +691,14 @@ function ckRow(loc) {
 }
 function exportCheck() {
   var head = ['Location', 'ผลรวม', 'ด้านหน้า', 'ด้านหน้า: พบอยู่ที่', 'ด้านหลัง', 'ด้านหลัง: พบอยู่ที่',
-    'Child Item Code', 'Specification', 'ชื่อ Part', 'Line', 'กลุ่ม Part', 'เวลาล่าสุด'];
+    'Child Item Code', 'Specification', 'ชื่อ Part', 'Line', 'กลุ่ม Part', 'เวลาล่าสุด', 'ผู้เช็ค'];
   var rows = ALL_LOCS.map(function (loc) {
     var r = CK.rec[loc] || {}, p = byLoc[loc], s = locStatus(loc), t = lastAt(loc);
     function sd(x) { return x ? SIDE_LBL[x.st].replace(/^\S+\s/, '') : 'ยังไม่เช็ค'; }
     function fd(x) { return x && x.st === 'ng' ? (x.found || 'ไม่ระบุ') : ''; }
     return [loc, s ? CK_LBL[s].replace(/^\S+\s/, '') : 'ยังไม่เช็ค', sd(r.f), fd(r.f), sd(r.b), fd(r.b),
-      p ? p.code : '', p ? p.spec : '', p ? p.name : '(ไม่มี Part)', p ? p.line : '', p ? p.grp : '', t ? new Date(t).toLocaleString('th-TH') : ''];
+      p ? p.code : '', p ? p.spec : '', p ? p.name : '(ไม่มี Part)', p ? p.line : '', p ? p.grp : '', t ? new Date(t).toLocaleString('th-TH') : '',
+      [r.f && r.f.by, r.b && r.b.by].filter(function (x, i, a) { return x && a.indexOf(x) === i; }).join(', ')];
   });
   var csv = '﻿' + [head].concat(rows).map(function (row) {
     return row.map(function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(',');
@@ -750,7 +791,7 @@ function openSettings(prefill) {
   inp.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); check(); } };
 }
 
-function editorBy() { return store('h9pl_editor') || ''; }
+function editorBy() { return userName(); }
 function partFind(q) {
   var r = resolveScan(q); if (r && r.parts.length) return r.parts;
   var toks = tokens(q); if (!toks.length) return [];
@@ -828,7 +869,7 @@ function renderSettings() {
       (api_ ? '🟢 เชื่อม Google Sheet แล้ว — ทุกเครื่องเห็นการเปลี่ยน' : '🟠 ยังไม่ได้ต่อ Google Sheet — การเปลี่ยนเก็บในเครื่องนี้เท่านั้น') + '</div>' +
       (api_ ? '<div class="small muted">ซิงค์ล่าสุด: ' + (ASSIGN.syncedAt ? fmtTime(ASSIGN.syncedAt) : '-') + ' <button class="btn sm" id="setSync">🔄 ซิงค์</button></div>' +
         (syncErr ? '<div class="msg err small">ดึงข้อมูลจาก Google Sheet ไม่สำเร็จ: ' + esc(syncErr) + '</div>' : '') : '') +
-      '<label class="small muted">ชื่อผู้แก้ไข (บันทึกในประวัติ)</label><input id="edBy" class="ed-note" type="text" maxlength="40" placeholder="ชื่อ" value="' + esc(editorBy()) + '"></div>' +
+      '<div class="small">ผู้แก้ไข: <b>👤 ' + esc(editorBy()) + '</b> <span class="muted">(เปลี่ยนได้ที่ชื่อมุมขวาบน)</span></div></div>' +
     edit + list +
     (api_ ? '<div class="set-card"><h4>🕘 ประวัติการเปลี่ยน</h4><div id="logBox"><button class="btn" id="logLoad">ดูประวัติล่าสุด</button></div></div>' : '') +
     '<details class="set-card"><summary><b>ขั้นสูง</b></summary>' +
@@ -839,7 +880,6 @@ function renderSettings() {
   // ----- ผูกปุ่ม -----
   $('setBack').onclick = function () { setTab('search'); };
   $('setLock').onclick = function () { setAdminPin(''); setTab('search'); toast('ออกจากเมนูตั้งค่าแล้ว'); };
-  $('edBy').onchange = function () { store('h9pl_editor', this.value.trim()); };
   if ($('setSync')) $('setSync').onclick = function () {
     this.disabled = true;
     syncAssignments(true).then(function () { toast('ซิงค์แล้ว'); renderSettings(); }, function (e) { toast(e.message, 3500); renderSettings(); });
@@ -888,8 +928,7 @@ function renderSettings() {
   if ($('edNote')) $('edNote').oninput = function () { E.note = this.value; };
   if ($('edCancel')) $('edCancel').onclick = function () { E.code = ''; E.q = ''; E.note = ''; renderSettings(); };
   if ($('edSave')) $('edSave').onclick = function () {
-    var by = $('edBy').value.trim(); store('h9pl_editor', by);
-    if (by.length < 2) { toast('กรุณาใส่ชื่อผู้แก้ไข', 2500); $('edBy').focus(); return; }
+    var by = editorBy();
     var changes = plannedChanges(); if (!changes || !changes.length) return;
     var btn = this; btn.disabled = true; btn.textContent = 'กำลังบันทึก…';
     saveChanges(changes, by, E.note).then(function () {
@@ -899,8 +938,7 @@ function renderSettings() {
   };
   Array.prototype.forEach.call(document.querySelectorAll('[data-revert]'), function (b) {
     b.onclick = function () {
-      var l = b.getAttribute('data-revert'), by = $('edBy').value.trim();
-      if (by.length < 2) { toast('กรุณาใส่ชื่อผู้แก้ไข', 2500); $('edBy').focus(); return; }
+      var l = b.getAttribute('data-revert'), by = editorBy();
       if (!confirm('คืนค่าช่อง ' + l + ' กลับไปตามไฟล์ Excel?')) return;
       b.disabled = true;
       revertChange(l, by).then(function () { toast('คืนค่า ' + l + ' แล้ว'); renderSettings(); }, function (e) { toast(e.message, 4000); b.disabled = false; });

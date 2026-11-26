@@ -263,3 +263,12 @@ a.btn { text-decoration: none; color: inherit; display: block; }
 .tag.chg { background: #efe6fb; color: #7247b8; }
 .chgtxt { color: #7247b8; }
 .ed-hint { margin-top: 8px; } .msg.small { font-size: 13px; padding: 8px 10px; margin: 6px 0 0; }
+/* ชื่อผู้ใช้ */
+.chip.user { max-width: 30vw; overflow: hidden; text-overflow: ellipsis; }
+.brand { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gate { text-align: center; margin-top: 30px; padding: 24px 16px; }
+.gate-ic { font-size: 44px; }
+.gate h3 { margin: 6px 0; }
+.name-in { letter-spacing: 0; font-size: 22px; margin-top: 10px; }
+.gate-btn { width: 100%; padding: 14px; font-size: 18px; }
+@media (max-width: 420px) { .ver { display: none; } }
