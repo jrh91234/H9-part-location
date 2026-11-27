@@ -100,7 +100,10 @@ mark { background: #ffe46b; color: inherit; border-radius: 3px; padding: 0 1px; 
 .rack-lv.on { color: var(--red); }
 @keyframes blink { 50% { opacity: .35; } }
 .rack-axis { display: grid; grid-template-columns: 26px 1fr; gap: 4px; font-size: 10px; color: var(--muted); }
-.rack-axis div:last-child { display: flex; justify-content: space-between; }
+.rack-nums { display: grid; gap: 1px; margin-top: 2px; }
+.rack-nums span { display: flex; justify-content: center; min-width: 0; }
+.rack-nums i { font-style: normal; font-size: 7.5px; letter-spacing: -.4px; line-height: 1.2; white-space: nowrap; }
+.rack-nums span:nth-child(10n) i { color: var(--ink); font-weight: 700; }
 
 /* หน้าผัง */
 .lv-pick { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-bottom: 10px; }

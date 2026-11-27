@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0854'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-1024'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -82,6 +82,12 @@ if (NEWP.length && GROUPS.indexOf(NEW_GRP) < 0) GROUPS.push(NEW_GRP);
 
 // ---------- เครื่องมือ ----------
 function $(id) { return document.getElementById(id); }
+// เลขช่องใต้ผัง: แสดงเลขคู่ 02 04 … ตรงกับคอลัมน์
+function rackAxis() {
+  var h = '';
+  for (var c = 1; c <= MAX_COL; c++) h += '<span>' + (c % 2 === 0 ? '<i>' + ('0' + c).slice(-2) + '</i>' : '') + '</span>';
+  return '<div class="rack-axis"><div></div><div class="rack-nums" style="grid-template-columns:repeat(' + MAX_COL + ',1fr)">' + h + '</div></div>';
+}
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function store(k, v) {
   try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; }
@@ -382,7 +388,7 @@ function rackHtml(mark, clickable) {
     var on = mark && mark.indexOf('H9-L' + lv + '-') === 0;
     return '<div class="rack-row"' + (clickable ? ' data-lv="' + lv + '"' : '') + '><div class="rack-lv' + (on ? ' on' : '') + '">L' + lv + '</div><div class="rack-cells">' + cells + '</div></div>';
   }).join('');
-  return '<div class="rack">' + rows + '<div class="rack-axis"><div></div><div><span>01</span><span>10</span><span>20</span><span>30</span><span>' + MAX_COL + '</span></div></div></div>';
+  return '<div class="rack">' + rows + rackAxis() + '</div>';
 }
 
 function showDetail(p) {
@@ -440,7 +446,7 @@ function openSlotPicker(p) {
     '<div class="small" style="margin:10px 0 4px"><b>⬜ ช่องว่าง (' + empty.length + ')</b>' + (empty.length ? '' : ' <span class="muted">— ไม่มีช่องว่าง เลือกช่องที่มีของได้ (Part เดิมจะสลับ / ไปรอจัดพื้นที่)</span>') + '</div>' +
     (empty.length ? '<div class="pk-free">' + empty.map(function (l) { return '<button class="btn sm" data-pick="' + l + '">' + esc(l.replace(/^H9-/, '')) + '</button>'; }).join('') + '</div>' : '') +
     '<div class="small" style="margin:10px 0 4px"><b>หรือแตะในผัง</b> <span class="muted">(ขาว = ว่าง · สี = มี Part)</span></div>' +
-    '<div class="rack pick">' + rows + '<div class="rack-axis"><div></div><div><span>01</span><span>10</span><span>20</span><span>30</span><span>' + MAX_COL + '</span></div></div></div>' +
+    '<div class="rack pick">' + rows + rackAxis() + '</div>' +
     '<div id="pkInfo" class="small"></div>' +
     '<div class="actions"><button class="btn" id="pkClose">ยกเลิก</button></div>');
   function go(loc) {
@@ -770,7 +776,7 @@ function ckRackHtml() {
     }
     return '<div class="rack-row"><div class="rack-lv">L' + lv + '</div><div class="rack-cells">' + cells + '</div></div>';
   }).join('');
-  return '<div class="rack ck">' + rows + '<div class="rack-axis"><div></div><div><span>01</span><span>10</span><span>20</span><span>30</span><span>' + MAX_COL + '</span></div></div></div>';
+  return '<div class="rack ck">' + rows + rackAxis() + '</div>';
 }
 
 function renderCheck() {
