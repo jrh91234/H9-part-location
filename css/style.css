@@ -332,3 +332,5 @@ a.btn { text-decoration: none; color: inherit; display: block; }
 .cmp-row.ng { background: var(--red-soft); } .cmp-row.ng .cmp-v > b:first-child { color: var(--red); }
 .cmp-row.empty { background: var(--amber-soft); }
 .cmp-fix { margin-top: 6px; background: var(--card); }
+.ck-sug { margin: -6px 0 10px; }
+.np-sug .sug.here { border-color: var(--green); background: var(--green-soft); }

@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0846'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0853'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -709,7 +709,8 @@ function slotHtml(inCam) {
     '<div class="ck-btns2"><button class="btn" data-ckact="slotprev">◀ ก่อนหน้า</button>' +
       '<button class="btn ck-empty" data-ckact="slotempty">⬜ ว่าง</button>' +
       '<button class="btn" data-ckact="slotnext">ถัดไป ▶</button></div>' +
-    '<div class="actions"><button class="btn ck-yes" data-ckact="slotok">✅ ตรง (ยืนยันด้วยตา)</button></div>' +
+    (inCam ? '' : '<div class="actions"><button class="btn ck-yes" data-ckact="slotcam">📷 ยิง QR ยืนยัน</button></div>' +
+      '<div class="small center muted">หรือพิมพ์รหัส Part ในช่องด้านบน (มีรายการแนะนำ)</div>') +
     '</div>';
   var L = CK.last, res = '';
   if (L && L.type === 'slotok') res = '<div class="ck-res ok"><div class="h">✅ ตรง Location</div>' + esc(L.loc) + ' · ' + (side === 'f' ? 'ด้านหน้า' : 'ด้านหลัง') + (L.next ? '<div class="small">→ ไปช่อง ' + esc(L.next) + ' แล้ว สแกนต่อได้เลย</div>' : '') + '</div>';
@@ -736,6 +737,7 @@ document.addEventListener('click', function (e) {
   else if (act === 'slotprev') setSlot(slotStep(CK.cur, -1));
   else if (act === 'slotnext') setSlot(slotStep(CK.cur, 1));
   else if (act === 'slotempty') { recSide(CK.cur, ckSide(), { st: 'empty', text: '', found: '' }); CK.last = { type: 'slotempty', loc: CK.cur }; saveCheck(); }
+  else if (act === 'slotcam') { if ($('ckCam')) $('ckCam').click(); return; }
   else if (act === 'slotok') {
     var cl = CK.cur; recSide(cl, ckSide(), { st: 'ok', text: '', found: '' }); beep(true);
     var nx = CK.auto !== false ? slotStep(cl, 1) : cl;
@@ -792,6 +794,7 @@ function renderCheck() {
     '<div class="search ck-search"><div class="search-wrap"><input id="ckq" type="text" enterkeyhint="go" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="' +
       (ckMode() === 'slot' ? 'สแกน Part / พิมพ์ช่อง' : 'สแกน Part / พิมพ์รหัส') + '"></div>' +
       '<button class="scan-btn" id="ckCam">📷 สแกน</button></div>' +
+    '<div class="np-sug ck-sug" id="ckSug"></div>' +
     (ckMode() === 'slot' ? slotHtml(false) : ckPendHtml()) +
     '<div class="legend"><span><i style="background:var(--green)"></i>ตรง 2 ด้าน</span><span><i style="background:#9fd9b4"></i>เช็ค 1 ด้าน</span>' +
       '<span><i style="background:var(--red)"></i>ไม่ตรง</span><span><i style="background:#f2b544"></i>ว่าง</span><span><i style="background:var(--line)"></i>ยังไม่เช็ค</span></div>' +
@@ -805,10 +808,30 @@ function renderCheck() {
     '<div class="actions"><button class="btn" id="ckCsv">⬇️ Export (Excel/CSV)</button><button class="btn" id="ckReset">🗑 เริ่มเช็คใหม่</button></div>';
 
   var q = $('ckq');
+  function submit(v) { checkScan(v); renderCheck(); if ($('ckq')) $('ckq').focus(); }
   q.onkeydown = function (e) {
     if (e.key !== 'Enter') return;
     e.preventDefault(); var v = q.value.trim(); if (!v) return;
-    checkScan(v); renderCheck(); if ($('ckq')) $('ckq').focus();
+    submit(v);
+  };
+  // พิมพ์ไม่ครบก็ได้: แนะนำ Part (ในระบบก่อน · Part ที่ช่องนี้ควรมีขึ้นก่อน) หรือแนะนำช่อง
+  q.oninput = function () {
+    var v = q.value, box = $('ckSug'), html = '';
+    var locs = suggestLocs(v);
+    if (locs.length && /^\s*(H9-?)?L\d/i.test(v)) {
+      html = locs.map(function (l) { var o = byLoc[l]; return '<button type="button" class="sug" data-cks="' + l + '"><b>' + esc(l.replace(/^H9-/, '')) + '</b> ' + (o ? '<span class="small muted">' + esc(o.code) + ' · ' + esc(o.name) + '</span>' : '<span class="small">⬜ ว่าง</span>') + '</button>'; }).join('');
+    } else {
+      html = suggestCheckParts(v).map(function (r) {
+        var p = r.p, here = ckMode() === 'slot' && p && p.loc === CK.cur;
+        return '<button type="button" class="sug' + (here ? ' here' : '') + '" data-cks="' + esc(r.code) + '"><b>' + esc(r.code) + '</b> · ' + esc(r.name) +
+          (r.spec ? ' <span class="small muted">(' + esc(r.spec) + ')</span>' : '') +
+          '<div class="small muted">' + (p ? (here ? '<b style="color:var(--green)">✔ Part ของช่องนี้</b>' : 'อยู่ที่ ' + esc(p.loc || 'รอจัดพื้นที่')) : esc(r.src) + ' · ไม่มีในระบบ') + '</div></button>';
+      }).join('');
+    }
+    box.innerHTML = html;
+    Array.prototype.forEach.call(box.querySelectorAll('[data-cks]'), function (b) {
+      b.onclick = function () { box.innerHTML = ''; submit(b.getAttribute('data-cks')); };
+    });
   };
   $('ckCam').onclick = function () {
     openCameraScanner(null, { title: ckMode() === 'slot' ? 'ไล่ตามช่อง — สแกน Part ในช่อง' : 'ไล่เช็ค — สแกนป้าย Part', status: ckCamStatus, onEach: checkScan });
@@ -1045,6 +1068,20 @@ function suggestParts(q) {
     return (b.code.indexOf(Q) === 0) - (a.code.indexOf(Q) === 0) || (b.code.indexOf(Q) >= 0) - (a.code.indexOf(Q) >= 0) || a.code.localeCompare(b.code);
   });
   return res.slice(0, 8);
+}
+function suggestCheckParts(q) {
+  var toks = String(q || '').toUpperCase().trim().split(/\s+/).filter(Boolean);
+  if (!toks.length || toks.join('').length < 2) return [];
+  var Q = toks.join(' '), cur = ckMode() === 'slot' ? CK.cur : '', out = [], seen = {};
+  PARTS.forEach(function (p) {
+    for (var j = 0; j < toks.length; j++) if (p.hay.indexOf(toks[j]) < 0) return;
+    out.push({ code: p.code, name: p.name, spec: p.spec, p: p, score: (p.loc === cur ? 0 : 2) + (p.code.indexOf(Q) === 0 ? 0 : 1) });
+    seen[p.code] = 1;
+  });
+  out.sort(function (a, b) { return a.score - b.score || locOrder(a.p, b.p); });
+  out = out.slice(0, 6);
+  if (out.length < 6) suggestParts(q).forEach(function (r) { if (!seen[r.code] && out.length < 8) out.push({ code: r.code, name: r.name, spec: r.spec, src: r.src, p: null }); });
+  return out;
 }
 // แนะนำช่อง: L3-2 → L3-20…29 · 3-2 / L32 ก็ได้
 function suggestLocs(q) {
