@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0744'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0839'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -999,6 +999,46 @@ function loadDm() {
   }, function () { loadDm.p = null; return DM_NAMES; });
   return loadDm.p;
 }
+// ดัชนีรายชื่อรวม (BOM → Kingdee → Material Master) สำหรับแนะนำระหว่างพิมพ์ — สร้างใหม่เมื่อแหล่งข้อมูลโหลดเพิ่ม
+var NAME_IDX = null, NAME_IDX_KEY = '';
+function nameIndex() {
+  var key = [window.BOM ? Object.keys(window.BOM).length : 0, KD_NAMES ? Object.keys(KD_NAMES).length : 0, DM_NAMES ? Object.keys(DM_NAMES).length : 0].join('/');
+  if (NAME_IDX && key === NAME_IDX_KEY) return NAME_IDX;
+  var seen = {}, out = [];
+  function add(code, name, spec, src) {
+    code = String(code || '').trim().toUpperCase(); if (!code || seen[code] || !(name || spec)) return;
+    seen[code] = 1; out.push({ code: code, name: String(name || ''), spec: String(spec || ''), src: src, hay: (code + ' ' + name + ' ' + spec).toUpperCase() });
+  }
+  if (window.BOM) Object.keys(window.BOM).forEach(function (c) { var b = window.BOM[c]; add(c, b[0], b[1], 'BOM'); });
+  if (KD_NAMES) Object.keys(KD_NAMES).forEach(function (c) { add(c, KD_NAMES[c][0], KD_NAMES[c][1], 'Kingdee'); });
+  if (DM_NAMES) Object.keys(DM_NAMES).forEach(function (c) { add(c, DM_NAMES[c][0], DM_NAMES[c][1], 'Material Master'); });
+  NAME_IDX = out; NAME_IDX_KEY = key;
+  return out;
+}
+// คำค้นหลายคำ ต้องเจอครบทุกคำ · รหัสที่ขึ้นต้นด้วยคำค้นมาก่อน · สูงสุด 8 รายการ
+function suggestParts(q) {
+  var toks = String(q || '').toUpperCase().trim().split(/\s+/).filter(Boolean);
+  if (!toks.length || toks.join('').length < 2) return [];
+  var Q = toks.join(' '), res = [];
+  var idx = nameIndex();
+  for (var i = 0; i < idx.length && res.length < 200; i++) {
+    var r = idx[i], ok = true;
+    for (var j = 0; j < toks.length; j++) if (r.hay.indexOf(toks[j]) < 0) { ok = false; break; }
+    if (ok) res.push(r);
+  }
+  res.sort(function (a, b) {
+    return (b.code.indexOf(Q) === 0) - (a.code.indexOf(Q) === 0) || (b.code.indexOf(Q) >= 0) - (a.code.indexOf(Q) >= 0) || a.code.localeCompare(b.code);
+  });
+  return res.slice(0, 8);
+}
+// แนะนำช่อง: L3-2 → L3-20…29 · 3-2 / L32 ก็ได้
+function suggestLocs(q) {
+  var t = String(q || '').toUpperCase().replace(/^H9-?/, '').replace(/\s+/g, '');
+  if (!t) return [];
+  var m = t.match(/^L?(\d)(?:-?(\d{0,2}))?$/); if (!m) return [];
+  var pre = 'H9-L' + m[1] + '-' + (m[2] || '');
+  return ALL_LOCS.filter(function (l) { return l.indexOf(pre) === 0 || l === normLoc(t); }).slice(0, 10);
+}
 function bomOf(code) {
   code = String(code || '').trim().toUpperCase();
   var b = window.BOM && window.BOM[code];
@@ -1040,12 +1080,12 @@ function openNewPartForm(raw) {
   var code = guessCode(raw);
   openModal('<h3>🆕 แจ้ง Part ใหม่ (ไม่มีในระบบ)</h3>' +
     '<p class="small muted">บันทึกไว้เพื่อจัด Location ภายหลัง · ทุกเครื่องเห็นรายการนี้</p>' +
-    '<label class="small muted">รหัส Part *</label><input id="npCode" class="ed-note" type="text" autocapitalize="characters" autocomplete="off" maxlength="40" value="' + esc(code) + '">' +
+    '<label class="small muted">รหัส Part *</label><input id="npCode" class="ed-note" type="text" autocapitalize="characters" autocomplete="off" maxlength="40" value="' + esc(code) + '"><div class="np-sug" id="sugCode"></div>' +
     '<div id="npBom" class="small"></div>' +
-    '<label class="small muted">ชื่อ / รายละเอียด</label><input id="npName" class="ed-note" type="text" maxlength="120" placeholder="เช่น Label 30A ใหม่">' +
-    '<label class="small muted">Specification</label><input id="npSpec" class="ed-note" type="text" autocapitalize="characters" maxlength="60">' +
+    '<label class="small muted">ชื่อ / รายละเอียด</label><input id="npName" class="ed-note" type="text" autocomplete="off" maxlength="120" placeholder="เช่น Label 30A ใหม่"><div class="np-sug" id="sugName"></div>' +
+    '<label class="small muted">Specification</label><input id="npSpec" class="ed-note" type="text" autocomplete="off" autocapitalize="characters" maxlength="60"><div class="np-sug" id="sugSpec"></div>' +
     (parseWarehouseQr(raw) ? '<div class="small muted" style="margin-top:6px">ป้าย Warehouse: Lot <b>' + esc(parseWarehouseQr(raw).lot) + '</b> · จำนวน <b>' + esc(parseWarehouseQr(raw).qty) + '</b></div>' : '') +
-    '<label class="small muted">พบอยู่ที่ช่อง (ถ้ามี)</label><input id="npFound" class="ed-note" type="text" autocapitalize="characters" autocomplete="off" placeholder="เช่น L3-07">' +
+    '<label class="small muted">พบอยู่ที่ช่อง (ถ้ามี)</label><input id="npFound" class="ed-note" type="text" autocapitalize="characters" autocomplete="off" placeholder="เช่น L3-07"><div class="np-sug" id="sugFound"></div>' +
     '<label class="small muted">หมายเหตุ</label><input id="npNote" class="ed-note" type="text" maxlength="200">' +
     (raw && raw !== code ? '<div class="small muted" style="margin-top:6px;overflow-wrap:anywhere">ข้อความที่สแกน: ' + esc(raw) + '</div>' : '') +
     '<div class="small" style="margin-top:6px">ผู้แจ้ง: <b>👤 ' + esc(userName()) + '</b></div>' +
@@ -1067,7 +1107,47 @@ function openNewPartForm(raw) {
   fillBom(); npFillHook = fillBom;
   // ค้น BOM ของแอป PDA และรายชื่อจาก Kingdee (โหลดถ้ายังไม่มีในเครื่อง)
   Promise.all([loadBom(), KD_NAMES ? null : loadKd(false), DM_NAMES ? null : loadDm()]).then(function () { if ($('npCode')) { fillBom(); if (!$('npName').value) $('npName').focus(); } });
-  $('npCode').oninput = fillBom;
+  // ---- รายการแนะนำระหว่างพิมพ์ (ไม่ต้องพิมพ์ครบ): รหัส / ชื่อ / Spec จาก BOM + Kingdee + Material Master · ช่องจากผัง ----
+  function pickPart(c) {
+    var b = bomOf(c);
+    $('npCode').value = c;
+    if (b) { $('npName').value = autoName = b.name; $('npSpec').value = autoSpec = b.spec; }
+    ['sugCode', 'sugName', 'sugSpec'].forEach(function (id) { $(id).innerHTML = ''; });
+    fillBom(); $('npFound').focus();
+  }
+  function showPartSug(boxId, q) {
+    ['sugCode', 'sugName', 'sugSpec', 'sugFound'].forEach(function (id) { if (id !== boxId) $(id).innerHTML = ''; }); // เปิดทีละกล่อง
+    var list = suggestParts(q), box = $(boxId);
+    if (boxId === 'sugCode' && list.length && !bomOf($('npCode').value)) $('npBom').innerHTML = '<span class="muted">👇 แตะเลือกจากรายการ หรือพิมพ์รหัสให้ครบ</span>';
+    box.innerHTML = list.map(function (r) {
+      var ex = byCode[r.code] && byCode[r.code][0], inSys = ex && !ex.isNew;
+      return '<button type="button" class="sug' + (inSys ? ' dim' : '') + '" data-sugc="' + esc(r.code) + '"><b>' + esc(r.code) + '</b> · ' + esc(r.name) +
+        (r.spec ? ' <span class="muted small">(' + esc(r.spec) + ')</span>' : '') +
+        '<div class="small muted">' + esc(r.src) + (inSys ? ' · <b style="color:var(--amber)">มีในระบบแล้ว ' + esc(ex.loc || 'รอจัดพื้นที่') + '</b>' : '') + '</div></button>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('[data-sugc]'), function (b) {
+      b.onclick = function () {
+        var c = b.getAttribute('data-sugc'), ex = byCode[c] && byCode[c][0];
+        if (ex && !ex.isNew) { toast(c + ' มีในระบบแล้ว (' + (ex.loc || 'รอจัดพื้นที่') + ')', 3000); return; }
+        pickPart(c);
+      };
+    });
+  }
+  $('npCode').oninput = function () { fillBom(); showPartSug('sugCode', this.value); };
+  $('npName').oninput = function () { showPartSug('sugName', this.value); };
+  $('npSpec').oninput = function () { showPartSug('sugSpec', this.value); };
+  $('npFound').oninput = function () {
+    ['sugCode', 'sugName', 'sugSpec'].forEach(function (id) { $(id).innerHTML = ''; });
+    var box = $('sugFound'), list = suggestLocs(this.value);
+    box.innerHTML = list.map(function (l) {
+      var o = byLoc[l];
+      return '<button type="button" class="sug" data-sugl="' + l + '"><b>' + esc(l.replace(/^H9-/, '')) + '</b> ' +
+        (o ? '<span class="small muted">มี ' + esc(o.code) + ' · ' + esc(o.name) + '</span>' : '<span class="small" style="color:var(--green)">⬜ ว่าง</span>') + '</button>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('[data-sugl]'), function (b) {
+      b.onclick = function () { $('npFound').value = b.getAttribute('data-sugl').replace(/^H9-/, ''); box.innerHTML = ''; };
+    });
+  };
   setTimeout(function () { if ($('npName') && !$('npName').value) $('npName').focus(); }, 50);
   $('npCancel').onclick = closeModal;
   $('npSave').onclick = function () {

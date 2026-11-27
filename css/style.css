@@ -318,3 +318,7 @@ a.btn { text-decoration: none; color: inherit; display: block; }
 .np-date { align-items: center; flex-wrap: wrap; overflow: visible; }
 .np-day { border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; font-family: inherit; font-size: 14px; background: var(--card); color: var(--muted); }
 .np-day.active { border-color: var(--blue); color: var(--blue); font-weight: 700; }
+/* รายการแนะนำในฟอร์มแจ้ง Part ใหม่ */
+.np-sug .sug { margin-top: 4px; padding: 7px 10px; }
+.np-sug .sug.dim { opacity: .6; }
+.np-sug:empty { display: none; }
