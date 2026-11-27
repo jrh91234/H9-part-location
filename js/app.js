@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0723'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0735'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -1076,12 +1076,60 @@ function openNewPartForm(raw) {
     if (item.code.length < 3) { toast('กรุณาใส่รหัส Part อย่างน้อย 3 ตัวอักษร', 2500); $('npCode').focus(); return; }
     if (byCode[item.code] && !byCode[item.code][0].isNew) { toast('รหัสนี้มีในระบบอยู่แล้ว', 2500); return; }
     if (f) { item.found = normLoc(f); if (!locExists(item.found)) { toast('รูปแบบช่องไม่ถูกต้อง เช่น L3-07', 2500); return; } }
+    if (item.found) { confirmPlaceNew(item); return; }
     var btn = this; btn.disabled = true; btn.textContent = 'กำลังบันทึก…';
     reportNewPart(item).then(function (res) {
       beep(true); closeModal();
       toast((res && res.queued ? '📴 บันทึกในเครื่องแล้ว จะส่งเมื่อมีเน็ต: ' : '🆕 แจ้ง Part ใหม่แล้ว: ') + item.code, 3500);
       applyAssignments(); render();
     }, function (e) { toast(e.message, 4000); btn.disabled = false; btn.textContent = '💾 บันทึก'; });
+  };
+}
+// กรอก "พบอยู่ที่ช่อง" → ยืนยันก่อน แล้ว: แจ้ง Part ใหม่ + ใส่ลงช่องนั้นแทนของเก่า (Part เดิม → รอจัดพื้นที่)
+// การเปลี่ยน Location ใช้รหัสตั้งค่า (ถ้าเครื่องนี้ยังไม่ได้ใส่ จะขอในหน้าต่างยืนยัน) · ไม่มีรหัส → บันทึกแค่ Part ใหม่ได้
+function confirmPlaceNew(item) {
+  var loc = item.found, O = byLoc[loc], cur = byCode[item.code] && byCode[item.code][0];
+  var needPin = !adminPin();
+  openModal('<h3>⚠️ ยืนยันใส่ Part ใหม่ลงช่อง</h3>' +
+    '<div class="ed-new">🆕 <b>' + esc(item.code) + '</b> · ' + esc(item.name || '(ยังไม่มีชื่อ)') + '</div>' +
+    '<div class="ck-pend" style="margin-top:8px"><div class="lbl">ใส่ลงช่อง</div><div class="big">' + esc(loc) + '</div>' +
+      (O ? '<div class="pp center"><b style="color:var(--red)">แทน</b> Part เดิม: <b>' + esc(O.code) + '</b> · ' + esc(O.name) + '</div>' +
+           '<div class="small center muted">Part เดิมจะไปอยู่ "รอจัดพื้นที่"</div>'
+         : '<div class="pp center">ช่องนี้ว่างอยู่</div>') + '</div>' +
+    (cur && cur.loc && cur.loc !== loc ? '<div class="small muted">Part นี้อยู่ที่ ' + esc(cur.loc) + ' ตอนนี้ → ช่องนั้นจะว่าง</div>' : '') +
+    (needPin ? '<label class="small muted">รหัสตั้งค่า (การเปลี่ยน Location ต้องใช้รหัส)</label>' +
+      '<input id="cpPin" class="pin-in" type="password" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="รหัส">' : '') +
+    '<p class="small center" id="cpMsg" style="color:var(--red)"></p>' +
+    '<div class="actions"><button class="btn ck-yes" id="cpOk">✅ ยืนยัน' + (O ? ' แทนที่' : ' ใส่ช่อง') + '</button></div>' +
+    '<div class="actions"><button class="btn" id="cpOnly">บันทึกแค่ Part ใหม่ (ยังไม่ใส่ช่อง)</button><button class="btn" id="cpCancel">ยกเลิก</button></div>');
+  if (needPin) setTimeout(function () { if ($('cpPin')) $('cpPin').focus(); }, 50);
+  $('cpCancel').onclick = closeModal;
+  function done(res1, res2, placed) {
+    beep(true); closeModal();
+    var q = (res1 && res1.queued) || (res2 && res2.queued);
+    toast((q ? '📴 บันทึกในเครื่องแล้ว จะส่งเมื่อมีเน็ต: ' : '🆕 ') + item.code + (placed ? ' → ' + loc.replace(/^H9-/, '') + (O ? ' (แทน ' + O.code + ')' : '') : ' (แจ้ง Part ใหม่แล้ว)'), 4500);
+    applyAssignments(); render();
+  }
+  $('cpOnly').onclick = function () {
+    this.disabled = true;
+    reportNewPart(item).then(function (r) { done(r, null, false); }, function (e) { toast(e.message, 4000); });
+  };
+  $('cpOk').onclick = function () {
+    var btn = this, msg = function (t) { if ($('cpMsg')) $('cpMsg').textContent = t; btn.disabled = false; };
+    btn.disabled = true;
+    var pinP = needPin ? verifyPin(($('cpPin') && $('cpPin').value.trim()) || '').then(function (ok) {
+      if (!ok) throw new Error('รหัสไม่ถูกต้อง');
+      setAdminPin($('cpPin').value.trim());
+    }) : Promise.resolve();
+    pinP.then(function () {
+      return reportNewPart(item);                       // 1) แจ้ง Part ใหม่ (Part เข้าระบบ)
+    }).then(function (res1) {
+      var p = byCode[item.code] && byCode[item.code][0], O2 = byLoc[loc];
+      if (p && p.loc === loc) return done(res1, null, true);
+      var ch = [{ loc: loc, code: item.code, old: O2 ? O2.code : '' }];
+      if (p && p.loc && p.loc !== loc) ch.push({ loc: p.loc, code: '', old: item.code });
+      return saveChanges(ch, editorBy(), 'Part ใหม่ ใส่ช่องแทนของเก่า').then(function (res2) { done(res1, res2, true); }); // 2) ใส่ช่อง
+    }).catch(function (e) { beep(false); msg(e.message); });
   };
 }
 // ออนไลน์ก่อน · ไม่มีเน็ต → คิวรอส่ง · ยังไม่ต่อ Google Sheet → เก็บในเครื่อง
@@ -1106,6 +1154,17 @@ function exportNewParts() {
 
 // ======================= ⚙ ตั้งค่า (ต้องใส่รหัส) =======================
 var LOCAL_PIN = '1234'; // ใช้เฉพาะตอนยังไม่ได้ต่อ Google Sheet — ถ้าต่อแล้ว เซิร์ฟเวอร์เป็นคนตรวจ (Script Properties → ADMIN_PIN)
+// ตรวจรหัสตั้งค่า: เซิร์ฟเวอร์ก่อน · ออฟไลน์ → เทียบกับรหัสที่เคยผ่านในเครื่องนี้ · ยังไม่ต่อ Google Sheet → รหัสในเครื่อง
+function verifyPin(v) {
+  return apiUrl() ? api('checkPin', v).then(function (ok) {
+    if (ok) store('h9pl_pinok', pinHash(v));
+    return ok;
+  }, function (e) {
+    if (e.network && store('h9pl_pinok')) return pinHash(v) === store('h9pl_pinok');
+    if (e.network) throw new Error('ไม่มีเน็ต — ต้องเข้าเมนูตั้งค่าตอนมีเน็ตอย่างน้อย 1 ครั้งก่อน');
+    throw e;
+  }) : Promise.resolve(v === LOCAL_PIN);
+}
 function pinHash(v) { var h = 5381; v = 'h9pl:' + v; for (var i = 0; i < v.length; i++) h = ((h << 5) + h + v.charCodeAt(i)) | 0; return String(h >>> 0); }
 function adminPin() { try { return sessionStorage.getItem('h9pl_pin') || ''; } catch (e) { return ''; } }
 function setAdminPin(v) { try { if (v) sessionStorage.setItem('h9pl_pin', v); else sessionStorage.removeItem('h9pl_pin'); } catch (e) { /* โหมดส่วนตัว */ } }
@@ -1125,14 +1184,7 @@ function openSettings(prefill) {
   function check() {
     var v = inp.value.trim(); if (!v) return;
     $('pinOk').disabled = true; $('pinMsg').textContent = '';
-    var p = apiUrl() ? api('checkPin', v).then(function (ok) {
-      if (ok) store('h9pl_pinok', pinHash(v));
-      return ok;
-    }, function (e) {
-      if (e.network && store('h9pl_pinok')) return pinHash(v) === store('h9pl_pinok'); // ออฟไลน์ → เทียบกับรหัสที่เคยผ่าน
-      if (e.network) throw new Error('ไม่มีเน็ต — ต้องเข้าเมนูตั้งค่าตอนมีเน็ตอย่างน้อย 1 ครั้งก่อน');
-      throw e;
-    }) : Promise.resolve(v === LOCAL_PIN);
+    var p = verifyPin(v);
     function msg(t) { if ($('pinMsg')) $('pinMsg').textContent = t; if ($('pinOk')) $('pinOk').disabled = false; }
     p.then(function (ok) {
       if (!$('pinIn')) return; // ปิดหน้าต่างไปแล้ว
