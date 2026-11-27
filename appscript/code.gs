@@ -11,6 +11,8 @@ const ASSIGN_SHEET = 'Assignments';
 const ASSIGN_HEADERS = ['location', 'part_code', 'updated_by', 'updated_at', 'note'];
 const LOG_SHEET = 'Log';
 const LOG_HEADERS = ['at', 'by', 'action', 'location', 'old_code', 'new_code', 'note'];
+const NEW_SHEET = 'NewParts'; // Part ที่สแกนเจอแต่ไม่มีในระบบ (แจ้งจากหน้าเว็บ) — เก็บไว้ทำ Location
+const NEW_HEADERS = ['reported_at', 'reported_by', 'part_code', 'name', 'found_at', 'note', 'raw_scan'];
 const TZ = 'Asia/Bangkok';
 const DEFAULT_PIN = '1234'; // เปลี่ยนได้ที่ Project Settings → Script Properties → ADMIN_PIN
 const LOC_RE = /^H9-L\d+-\d{2}$/;
@@ -18,7 +20,8 @@ const MAX_CHANGES = 10;
 
 // ======================= Web App =======================
 const API_ACTIONS = { ping: ping, checkPin: checkPin, getAssignments: getAssignments, saveAssignments: saveAssignments,
-  revertAssignment: revertAssignment, getLog: getLog };
+  revertAssignment: revertAssignment, getLog: getLog,
+  reportNewPart: reportNewPart, getNewParts: getNewParts, deleteNewPart: deleteNewPart };
 
 function doPost(e) {
   let out;
@@ -49,7 +52,8 @@ function onOpen() {
 function setupFromMenu() {
   assignSheet_();
   logSheet_();
-  SpreadsheetApp.getUi().alert('พร้อมใช้งาน: ชีต "' + ASSIGN_SHEET + '" และ "' + LOG_SHEET + '"');
+  newSheet_();
+  SpreadsheetApp.getUi().alert('พร้อมใช้งาน: ชีต "' + ASSIGN_SHEET + '", "' + LOG_SHEET + '" และ "' + NEW_SHEET + '"');
 }
 
 // ======================= ชีต =======================
@@ -73,6 +77,7 @@ function sheetWith_(name, headers) {
 }
 function assignSheet_() { return sheetWith_(ASSIGN_SHEET, ASSIGN_HEADERS); }
 function logSheet_() { return sheetWith_(LOG_SHEET, LOG_HEADERS); }
+function newSheet_() { return sheetWith_(NEW_SHEET, NEW_HEADERS); }
 
 function now_() { return Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd'T'HH:mm:ss"); }
 // Sheets อาจแปลงข้อความเวลาเป็น Date เอง → อ่านกลับเป็นรูปแบบเดียวกันเสมอ (เรียงลำดับได้)
@@ -166,4 +171,64 @@ function getLog(limit) {
   return sh.getRange(start, 1, sh.getLastRow() - start + 1, LOG_HEADERS.length).getValues().reverse().map(function (r) {
     return { at: ts_(r[0]), by: String(r[1]), action: String(r[2]), loc: String(r[3]), old: String(r[4]), code: String(r[5]), note: String(r[6]) };
   });
+}
+
+// ======================= Part ใหม่ที่ไม่มีในระบบ =======================
+function readNew_(sh) {
+  const n = sh.getLastRow() - 1;
+  if (n <= 0) return [];
+  return sh.getRange(2, 1, n, NEW_HEADERS.length).getValues().map(function (r, i) {
+    return { row: i + 2, at: ts_(r[0]), by: String(r[1]), code: String(r[2]).trim(), name: String(r[3]), found: String(r[4]), note: String(r[5]), raw: String(r[6]) };
+  }).filter(function (r) { return r.code; });
+}
+function publicNew_(rows) {
+  return rows.map(function (r) { return { at: r.at, by: r.by, code: r.code, name: r.name, found: r.found, note: r.note, raw: r.raw }; });
+}
+
+/** รายการ Part ใหม่ทั้งหมด (เก่า → ใหม่) */
+function getNewParts() { return publicNew_(readNew_(newSheet_())); }
+
+/**
+ * แจ้ง Part ที่สแกนเจอแต่ไม่มีในระบบ (ทุกคนแจ้งได้ ไม่ต้องใช้รหัส)
+ * item: { code, name, found, note, raw } · รหัสซ้ำ → อัปเดตแถวเดิม (ไม่เพิ่มซ้ำ)
+ */
+function reportNewPart(by, item) {
+  by = cleanBy_(by);
+  item = item || {};
+  const code = String(item.code || '').trim().toUpperCase().slice(0, 40);
+  if (code.length < 3) throw new Error('กรุณาใส่รหัส Part อย่างน้อย 3 ตัวอักษร');
+  const found = LOC_RE.test(String(item.found || '')) ? String(item.found) : '';
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = newSheet_(), at = now_();
+    const vals = [at, by, code, String(item.name || '').slice(0, 120), found, String(item.note || '').slice(0, 200), String(item.raw || '').slice(0, 300)];
+    const old = readNew_(sh).filter(function (r) { return r.code === code; })[0];
+    if (old) {
+      if (!vals[3]) vals[3] = old.name;
+      if (!vals[4]) vals[4] = old.found;
+      sh.getRange(old.row, 1, 1, NEW_HEADERS.length).setValues([vals]);
+    } else sh.appendRow(vals);
+    logSheet_().appendRow([at, by, 'new_part', found, '', code, String(item.name || '')]);
+    return publicNew_(readNew_(sh));
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** ลบรายการ Part ใหม่ (ผู้ดูแล — ต้องใช้รหัส) เช่น เพิ่มลงไฟล์ Excel แล้ว / แจ้งผิด */
+function deleteNewPart(pin, by, code) {
+  requirePin_(pin);
+  by = cleanBy_(by);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = newSheet_();
+    readNew_(sh).filter(function (r) { return r.code === code; })
+      .sort(function (a, b) { return b.row - a.row; }).forEach(function (r) { sh.deleteRow(r.row); });
+    logSheet_().appendRow([now_(), by, 'delete_new_part', '', code, '', '']);
+    return publicNew_(readNew_(sh));
+  } finally {
+    lock.releaseLock();
+  }
 }

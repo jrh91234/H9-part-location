@@ -273,3 +273,6 @@ a.btn { text-decoration: none; color: inherit; display: block; }
 .gate-btn { width: 100%; padding: 14px; font-size: 18px; }
 @media (max-width: 420px) { .ver { display: none; } }
 .chip.net { background: #ffd56b; color: #5a3d00; font-size: 12px; padding: 5px 9px; }
+/* แจ้ง Part ใหม่ */
+.newp-btn { width: 100%; margin: 0 0 12px; background: var(--amber-soft); border-color: #f1d9a8; color: var(--amber); font-weight: 700; padding: 13px; }
+.np-act { flex: none; display: flex; flex-direction: column; gap: 6px; }

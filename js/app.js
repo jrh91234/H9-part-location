@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0138'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0326'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -38,10 +38,25 @@ function applyAssignments() {
     p.lv = m ? +m[1] : 0; p.col = m ? +m[2] : 0;
     if (p.loc && byLoc[p.loc]) p.loc = ''; // กันซ้ำช่อง
     p.short = p.loc ? p.loc.replace(/^H9-/, '') : '';
-    p.hay = [p.loc, p.short, p.code, p.spec, p.name.toUpperCase(), p.grp.toUpperCase(), p.loc ? '' : 'รอจัดพื้นที่'].join(' ');
+    p.hay = [p.loc, p.short, p.code, p.spec, p.name.toUpperCase(), p.grp.toUpperCase(), p.loc ? '' : 'รอจัดพื้นที่', p.isNew ? 'แจ้งใหม่ PART ใหม่' : ''].join(' ');
     if (p.loc) byLoc[p.loc] = p;
   });
 }
+// Part ใหม่ที่แจ้งไว้ (ไม่มีในไฟล์ Excel) → เพิ่มเป็น Part ในระบบสถานะ "รอจัดพื้นที่" เพื่อค้นหาเจอ / กำหนด Location ได้
+var NEWP = (function () { try { return JSON.parse(localStorage.getItem('h9pl_newparts') || '[]'); } catch (e) { return []; } })();
+var NEW_GRP = '🆕 Part ใหม่ (ไม่มีใน Excel)';
+function newPartOf(code) { for (var i = 0; i < NEWP.length; i++) if (NEWP[i].code === code) return NEWP[i]; return null; }
+function addNewParts() {
+  NEWP.forEach(function (n) {
+    var ex = byCode[n.code] && byCode[n.code][0];
+    if (ex) { if (ex.isNew) ex.name = n.name || '(ยังไม่มีชื่อ)'; return; }
+    var p = { loc: '', lv: 0, col: 0, line: '-', code: n.code, spec: '', name: n.name || '(ยังไม่มีชื่อ)', grp: NEW_GRP, st: 'แจ้งใหม่', note: n.note || '', isNew: true };
+    p.i = PARTS.length; p.loc0 = ''; PARTS.push(p);
+    byCode[p.code] = [p];
+    if (typeof GROUPS !== 'undefined' && GROUPS.indexOf(NEW_GRP) < 0) GROUPS.push(NEW_GRP);
+  });
+}
+addNewParts();
 applyAssignments();
 function locOrder(a, b) {
   if (!a.loc !== !b.loc) return a.loc ? -1 : 1;
@@ -63,6 +78,7 @@ var S = {
 var GROUPS = [];
 PARTS.forEach(function (p) { if (p.grp && GROUPS.indexOf(p.grp) < 0) GROUPS.push(p.grp); });
 GROUPS.sort();
+if (NEWP.length && GROUPS.indexOf(NEW_GRP) < 0) GROUPS.push(NEW_GRP);
 
 // ---------- เครื่องมือ ----------
 function $(id) { return document.getElementById(id); }
@@ -299,7 +315,7 @@ function renderResults() {
   if (S.scan) {
     var sc = S.scan;
     if (!sc.parts.length) {
-      html += '<div class="msg err">❌ ไม่พบในรายการ: <b>' + esc(sc.text) + '</b><br><span class="small">ลองสแกนใหม่ หรือพิมพ์บางส่วนของรหัสเพื่อค้นหา</span></div>';
+      html += '<div class="msg err">❌ ไม่พบในรายการ: <b>' + esc(sc.text) + '</b><br><span class="small">ลองสแกนใหม่ หรือพิมพ์บางส่วนของรหัสเพื่อค้นหา</span></div>' + newPartBtn(sc.text);
       list = [];
     } else {
       var what = sc.how === 'loc' ? 'Location' : sc.how === 'spec' ? 'Spec' : 'รหัส';
@@ -347,7 +363,8 @@ function cardHtml(p, toks, hit) {
     '<div class="name">' + hl(p.name, toks) + '</div>' +
     '<div class="tags"><span class="tag ' + lnCls(p) + '">Line ' + esc(p.line) + '</span><span class="tag">' + esc(p.grp) + '</span>' +
       (p.st && p.st !== 'Approved' ? '<span class="tag warn">' + esc(p.st) + '</span>' : '') +
-      (p.loc !== p.loc0 ? '<span class="tag chg">✏️ เปลี่ยนจาก Excel' + (p.loc0 ? ' (เดิม ' + esc(p.loc0.replace(/^H9-/, '')) + ')' : '') + '</span>' : '') + '</div></div></button>';
+      (p.isNew ? (function () { var n = newPartOf(p.code); return n ? '<span class="tag">แจ้งโดย ' + esc(n.by) + '</span>' : ''; })() : '') +
+      (p.loc !== p.loc0 && !p.isNew ? '<span class="tag chg">✏️ เปลี่ยนจาก Excel' + (p.loc0 ? ' (เดิม ' + esc(p.loc0.replace(/^H9-/, '')) + ')' : '') + '</span>' : '') + '</div></div></button>';
 }
 
 function rackHtml(mark, clickable) {
@@ -566,7 +583,7 @@ function ckPendHtml() {
 function ckLastHtml() {
   var L = CK.last;
   if (!L) return '<div class="ck-res idle"><div class="h">📦 สแกนป้าย Part</div>แอปจะบอกว่า Part ควรอยู่ช่องไหน → ดูช่องจริง แล้วยืนยัน<b> ด้านหน้า</b> และ<b> ด้านหลัง</b></div>';
-  if (L.type === 'unk') return '<div class="ck-res err"><div class="h">❓ ไม่พบ Part นี้ในรายการ</div>สแกนได้: <b>' + esc(L.text) + '</b></div>';
+  if (L.type === 'unk') return '<div class="ck-res err"><div class="h">❓ ไม่พบ Part นี้ในรายการ</div>สแกนได้: <b>' + esc(L.text) + '</b></div>' + newPartBtn(L.text);
   if (L.type === 'noloc') return '<div class="ck-res warn"><div class="h">' + esc(L.loc) + '</div>ช่องนี้ไม่มี Part ในรายการ</div>';
   if (L.type === 'wait') return '<div class="ck-res warn"><div class="h">⏳ Part นี้ยังรอจัดพื้นที่</div>' +
     L.parts.map(function (i) { return '<b>' + esc(PARTS[i].code) + '</b> · ' + esc(PARTS[i].name); }).join('<br>') + '<br>ยังไม่มี Location ในรายการ</div>';
@@ -748,6 +765,7 @@ function setAssignRows(rows) {
 // ---------- ออฟไลน์: การเปลี่ยนที่ยังส่งไม่ได้ เก็บเป็นคิวในเครื่อง แล้วส่งเมื่อกลับมามีเน็ต ----------
 function nowLocal() { var d = new Date(), z = function (n) { return ('0' + n).slice(-2); }; return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + 'T' + z(d.getHours()) + ':' + z(d.getMinutes()) + ':' + z(d.getSeconds()); }
 function applyOpLocal(op) {
+  if (op.type === 'newpart') { mergeNewPartLocal(op.item, op.by, op.at, true); return; }
   if (op.type === 'revert') { delete ASSIGN.rows[op.loc]; return; }
   op.changes.forEach(function (c) { ASSIGN.rows[c.loc] = { code: c.code, by: op.by, at: op.at, note: op.note || '', pending: true }; });
 }
@@ -765,11 +783,13 @@ function flushPending() {
   function next() {
     var op = (ASSIGN.pending || [])[0];
     if (!op) return Promise.resolve(sent);
-    var call = op.type === 'revert'
-      ? api('revertAssignment', op.pin, op.by, op.loc, op.oldCode, op.newCode)
+    var call = op.type === 'newpart' ? api('reportNewPart', op.by, op.item)
+      : op.type === 'revert' ? api('revertAssignment', op.pin, op.by, op.loc, op.oldCode, op.newCode)
       : api('saveAssignments', op.pin, op.by, op.changes, op.note || '');
     return call.then(function (rows) {
-      ASSIGN.pending.shift(); sent++; setAssignRows(rows); return next();
+      ASSIGN.pending.shift(); sent++;
+      if (op.type === 'newpart') { saveAssign(); setNewParts(rows); } else setAssignRows(rows);
+      return next();
     }, function (e) {
       if (e.network) throw e;                       // ยังไม่มีเน็ต → เก็บไว้ส่งรอบหน้า
       ASSIGN.pending.shift(); saveAssign();         // เซิร์ฟเวอร์ปฏิเสธ (เช่น รหัสผิด) → ทิ้งรายการนั้น
@@ -797,10 +817,13 @@ function syncAssignments(force) {
   if (!apiUrl()) return Promise.resolve(false);
   if (syncing) return syncing;
   if (!force && Date.now() - (ASSIGN.syncedAt || 0) < 60000) return Promise.resolve(false);
-  syncing = flushPending().catch(function () { /* ยังส่งไม่ได้ → ดึงข้อมูลต่อ */ }).then(function () { return api('getAssignments'); }).then(function (rows) {
-    var before = JSON.stringify(ASSIGN.rows);
-    setAssignRows(rows);
-    var changed = before !== JSON.stringify(ASSIGN.rows);
+  syncing = flushPending().catch(function () { /* ยังส่งไม่ได้ → ดึงข้อมูลต่อ */ }).then(function () {
+    return Promise.all([api('getAssignments'), api('getNewParts').catch(function () { return null; })]);
+  }).then(function (res) {
+    var before = JSON.stringify(ASSIGN.rows) + JSON.stringify(NEWP);
+    if (res[1]) setNewParts(res[1], true);
+    setAssignRows(res[0]);
+    var changed = before !== JSON.stringify(ASSIGN.rows) + JSON.stringify(NEWP);
     if ((changed || force) && $('modal').classList.contains('hidden')) render();
     return changed;
   }).then(function (c) { syncing = null; syncErr = ''; return c; }, function (e) {
@@ -809,6 +832,88 @@ function syncAssignments(force) {
     throw e;
   });
   return syncing;
+}
+
+// ======================= 🆕 แจ้ง Part ใหม่ที่ไม่มีในระบบ =======================
+function saveNewParts() { store('h9pl_newparts', JSON.stringify(NEWP)); }
+function mergeNewPartLocal(item, by, at, pending) {
+  var old = newPartOf(item.code), row = { at: at, by: by, code: item.code, name: item.name || (old && old.name) || '', found: item.found || (old && old.found) || '', note: item.note || '', raw: item.raw || '', pending: !!pending };
+  if (old) NEWP[NEWP.indexOf(old)] = row; else NEWP.push(row);
+  saveNewParts(); addNewParts();
+}
+// รายการจากเซิร์ฟเวอร์ + รายการที่ยังรอส่งในเครื่อง
+function setNewParts(rows, quiet) {
+  NEWP = (rows || []).slice();
+  (ASSIGN.pending || []).forEach(function (op) {
+    if (op.type !== 'newpart') return;
+    var o = newPartOf(op.item.code), r = { at: op.at, by: op.by, code: op.item.code, name: op.item.name, found: op.item.found, note: op.item.note, raw: op.item.raw, pending: true };
+    if (o) NEWP[NEWP.indexOf(o)] = r; else NEWP.push(r);
+  });
+  saveNewParts(); addNewParts();
+  if (!quiet) applyAssignments();
+}
+// เดารหัส Part จากข้อความที่สแกน: ใช้คำที่ยาวที่สุดที่เป็นตัวอักษร/ตัวเลข
+function guessCode(text) {
+  var lq = String(text || '').match(/#q=([^&\s]+)/); if (lq) { try { text = decodeURIComponent(lq[1]); } catch (e) { text = lq[1]; } }
+  var toks = String(text || '').toUpperCase().split(/[^A-Z0-9\-\/]+/).filter(function (t) { return t.length >= 3; });
+  toks.sort(function (a, b) { return b.length - a.length; });
+  return (toks[0] || String(text || '').trim().toUpperCase()).slice(0, 40);
+}
+function newPartBtn(text) {
+  var g = guessCode(text), n = newPartOf(g);
+  if (n) return '<div class="msg warn small">🆕 รหัส <b>' + esc(g) + '</b> แจ้งเป็น Part ใหม่ไว้แล้ว โดย ' + esc(n.by) + (n.pending ? ' (รอส่ง)' : '') + '</div>';
+  return '<button class="btn newp-btn" data-newp="' + esc(text) + '">➕ แจ้ง Part ใหม่ (ไม่มีในระบบ)</button>';
+}
+document.addEventListener('click', function (e) {
+  var b = e.target.closest && e.target.closest('[data-newp]'); if (!b) return;
+  openNewPartForm(b.getAttribute('data-newp'));
+});
+function openNewPartForm(raw) {
+  if ($('camStatus')) closeModal(); // ปิดกล้องก่อนเปิดฟอร์ม
+  var code = guessCode(raw);
+  openModal('<h3>🆕 แจ้ง Part ใหม่ (ไม่มีในระบบ)</h3>' +
+    '<p class="small muted">บันทึกไว้เพื่อจัด Location ภายหลัง · ทุกเครื่องเห็นรายการนี้</p>' +
+    '<label class="small muted">รหัส Part *</label><input id="npCode" class="ed-note" type="text" autocapitalize="characters" autocomplete="off" maxlength="40" value="' + esc(code) + '">' +
+    '<label class="small muted">ชื่อ / รายละเอียด</label><input id="npName" class="ed-note" type="text" maxlength="120" placeholder="เช่น Label 30A ใหม่">' +
+    '<label class="small muted">พบอยู่ที่ช่อง (ถ้ามี)</label><input id="npFound" class="ed-note" type="text" autocapitalize="characters" autocomplete="off" placeholder="เช่น L3-07">' +
+    '<label class="small muted">หมายเหตุ</label><input id="npNote" class="ed-note" type="text" maxlength="200">' +
+    (raw && raw !== code ? '<div class="small muted" style="margin-top:6px;overflow-wrap:anywhere">ข้อความที่สแกน: ' + esc(raw) + '</div>' : '') +
+    '<div class="small" style="margin-top:6px">ผู้แจ้ง: <b>👤 ' + esc(userName()) + '</b></div>' +
+    '<div class="actions"><button class="btn" id="npCancel">ยกเลิก</button><button class="btn primary" id="npSave">💾 บันทึก</button></div>');
+  setTimeout(function () { if ($('npName')) $('npName').focus(); }, 50);
+  $('npCancel').onclick = closeModal;
+  $('npSave').onclick = function () {
+    var item = { code: $('npCode').value.trim().toUpperCase(), name: $('npName').value.trim(), found: '', note: $('npNote').value.trim(), raw: String(raw || '').slice(0, 300) };
+    var f = $('npFound').value.trim();
+    if (item.code.length < 3) { toast('กรุณาใส่รหัส Part อย่างน้อย 3 ตัวอักษร', 2500); $('npCode').focus(); return; }
+    if (byCode[item.code] && !byCode[item.code][0].isNew) { toast('รหัสนี้มีในระบบอยู่แล้ว', 2500); return; }
+    if (f) { item.found = normLoc(f); if (!locExists(item.found)) { toast('รูปแบบช่องไม่ถูกต้อง เช่น L3-07', 2500); return; } }
+    var btn = this; btn.disabled = true; btn.textContent = 'กำลังบันทึก…';
+    reportNewPart(item).then(function (res) {
+      beep(true); closeModal();
+      toast((res && res.queued ? '📴 บันทึกในเครื่องแล้ว จะส่งเมื่อมีเน็ต: ' : '🆕 แจ้ง Part ใหม่แล้ว: ') + item.code, 3500);
+      applyAssignments(); render();
+    }, function (e) { toast(e.message, 4000); btn.disabled = false; btn.textContent = '💾 บันทึก'; });
+  };
+}
+// ออนไลน์ก่อน · ไม่มีเน็ต → คิวรอส่ง · ยังไม่ต่อ Google Sheet → เก็บในเครื่อง
+function reportNewPart(item) {
+  var op = { type: 'newpart', item: item, by: userName(), at: nowLocal() };
+  if (!apiUrl()) { mergeNewPartLocal(item, op.by, op.at, false); return Promise.resolve({}); }
+  if (pendingCount()) return sendAfterQueue(op);
+  return api('reportNewPart', op.by, item).then(function (rows) { setNewParts(rows); return {}; }, function (e) {
+    if (!e.network) throw e;
+    queueOp(op); return { queued: true };
+  });
+}
+function exportNewParts() {
+  var head = ['รหัส Part', 'ชื่อ / รายละเอียด', 'พบอยู่ที่', 'Location ที่กำหนดแล้ว', 'หมายเหตุ', 'ผู้แจ้ง', 'เวลาแจ้ง', 'ข้อความที่สแกน'];
+  var rows = NEWP.map(function (n) { var p = byCode[n.code] && byCode[n.code][0]; return [n.code, n.name, n.found, p && p.loc || '', n.note, n.by, String(n.at).replace('T', ' '), n.raw]; });
+  var csv = '﻿' + [head].concat(rows).map(function (r) { return r.map(function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n');
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'H9-new-parts-' + nowLocal().slice(0, 10) + '.csv';
+  document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 1000);
 }
 
 // ======================= ⚙ ตั้งค่า (ต้องใส่รหัส) =======================
@@ -914,6 +1019,17 @@ function renderSettings() {
   }
   edit += '</div>';
 
+  var newList = '<div class="set-card"><h4>🆕 Part ใหม่ที่แจ้ง (' + NEWP.length + ')</h4>' +
+    (NEWP.length ? NEWP.slice().reverse().map(function (n) {
+      var p = byCode[n.code] && byCode[n.code][0];
+      return '<div class="chg-row"><div class="m"><div><b>' + esc(n.code) + '</b> ' + esc(n.name || '') + '</div>' +
+        '<div class="small muted">' + (n.pending ? '<b style="color:var(--amber)">⏳ รอส่ง</b> · ' : '') + 'แจ้งโดย ' + esc(n.by) + ' · ' + esc(String(n.at).replace('T', ' ').slice(0, 16)) +
+          (n.found ? ' · พบที่ ' + esc(n.found.replace(/^H9-/, '')) : '') + (n.note ? ' · ' + esc(n.note) : '') + '</div>' +
+        '<div class="small">Location: <b>' + esc(p && p.loc ? p.loc : 'ยังไม่กำหนด') + '</b></div></div>' +
+        '<div class="np-act"><button class="btn sm" data-npset="' + esc(n.code) + '">📍 กำหนด</button>' +
+        (n.pending ? '' : '<button class="btn sm" data-npdel="' + esc(n.code) + '">🗑</button>') + '</div></div>';
+    }).join('') + '<div class="actions"><button class="btn" id="npCsv">⬇️ Export รายการ Part ใหม่</button></div>'
+      : '<div class="small muted">ยังไม่มี — สแกน Part ที่ไม่มีในระบบแล้วกด "➕ แจ้ง Part ใหม่"</div>') + '</div>';
   var list = '<div class="set-card"><h4>📋 ช่องที่เปลี่ยนจาก Excel (' + changed.length + ')</h4>' +
     (changed.length ? changed.map(function (l) {
       var r = ASSIGN.rows[l], x = PARTS.filter(function (p) { return p.loc0 === l; })[0];
@@ -931,7 +1047,7 @@ function renderSettings() {
       (api_ ? '<div class="small muted">ซิงค์ล่าสุด: ' + (ASSIGN.syncedAt ? fmtTime(ASSIGN.syncedAt) : '-') + ' <button class="btn sm" id="setSync">🔄 ซิงค์</button></div>' +
         (syncErr ? '<div class="msg err small">ดึงข้อมูลจาก Google Sheet ไม่สำเร็จ: ' + esc(syncErr) + '</div>' : '') : '') +
       '<div class="small">ผู้แก้ไข: <b>👤 ' + esc(editorBy()) + '</b> <span class="muted">(เปลี่ยนได้ที่ชื่อมุมขวาบน)</span></div></div>' +
-    edit + list +
+    edit + newList + list +
     (api_ ? '<div class="set-card"><h4>🕘 ประวัติการเปลี่ยน</h4><div id="logBox"><button class="btn" id="logLoad">ดูประวัติล่าสุด</button></div></div>' : '') +
     '<details class="set-card"><summary><b>ขั้นสูง</b></summary>' +
       '<label class="small muted">Apps Script URL (/exec) — ว่าง = ใช้ค่าใน js/config.js</label>' +
@@ -952,13 +1068,13 @@ function renderSettings() {
   function pickLoc() {
     var l = normLoc($('edLoc').value);
     if (!locExists(l)) { toast('ไม่มี Location นี้ในผัง (เช่น L3-05)', 2500); return; }
-    E.loc = l; E.code = ''; E.q = ''; E.mode = 'swap'; renderSettings(); focusPart();
+    var keep = E.keep || (!E.loc && E.code); E.loc = l; if (!keep) E.code = ''; E.keep = false; E.q = ''; E.mode = 'swap'; renderSettings(); if (!keep) focusPart();
   }
   function focusPart() { setTimeout(function () { if ($('edQ')) { $('edQ').focus(); $('edQ').scrollIntoView({ block: 'center', behavior: 'smooth' }); } }, 30); }
   $('edLocOk').onclick = pickLoc;
   $('edLoc').oninput = function () {
     var l = normLoc(this.value);
-    if (locExists(l) && l !== E.loc && /\d{2}$/.test(this.value.trim())) { E.loc = l; E.code = ''; E.q = ''; E.mode = 'swap'; renderSettings(); focusPart(); }
+    if (locExists(l) && l !== E.loc && /\d{2}$/.test(this.value.trim())) { var keep = E.keep || (!E.loc && E.code); E.loc = l; if (!keep) E.code = ''; E.keep = false; E.q = ''; E.mode = 'swap'; renderSettings(); if (!keep) focusPart(); }
   };
   $('edLoc').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); pickLoc(); } };
   if ($('edQ')) {
@@ -1009,10 +1125,30 @@ function renderSettings() {
       revertChange(l, by).then(function (res) { toast('คืนค่า ' + l + (res && res.queued ? ' (รอส่งเมื่อมีเน็ต)' : ' แล้ว')); renderSettings(); }, function (e) { toast(e.message, 4000); b.disabled = false; });
     };
   });
+  if ($('npCsv')) $('npCsv').onclick = exportNewParts;
+  Array.prototype.forEach.call(document.querySelectorAll('[data-npset]'), function (b) {
+    b.onclick = function () {
+      var n = newPartOf(b.getAttribute('data-npset')), p = byCode[n.code] && byCode[n.code][0];
+      E.code = n.code; E.q = ''; E.loc = p && p.loc ? p.loc : (n.found || ''); E.mode = 'swap';
+      if (!E.loc) { E.keep = true; toast('พิมพ์ Location ที่จะเก็บ Part นี้', 2500); }
+      renderSettings();
+      setTimeout(function () { var el = E.loc ? $('edSave') : $('edLoc'); if (el) { el.scrollIntoView({ block: 'center' }); if (!E.loc) el.focus(); } }, 30);
+    };
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-npdel]'), function (b) {
+    b.onclick = function () {
+      var code = b.getAttribute('data-npdel');
+      if (!confirm('ลบ ' + code + ' ออกจากรายการ Part ใหม่?\n(เช่น เพิ่มลงไฟล์ Excel แล้ว หรือแจ้งผิด)')) return;
+      if (!apiUrl()) { NEWP = NEWP.filter(function (n) { return n.code !== code; }); saveNewParts(); renderSettings(); return; }
+      b.disabled = true;
+      api('deleteNewPart', adminPin(), editorBy(), code).then(function (rows) { setNewParts(rows); toast('ลบ ' + code + ' แล้ว (หายจากการค้นหาหลังเปิดแอปใหม่)', 3500); renderSettings(); },
+        function (e) { toast(e.message, 3500); b.disabled = false; });
+    };
+  });
   if ($('logLoad')) $('logLoad').onclick = function () {
     $('logBox').innerHTML = '<div class="small muted">กำลังโหลด…</div>';
     api('getLog', 50).then(function (rows) {
-      var A = { assign: 'ใส่', clear: 'ทำให้ว่าง', revert: 'คืนค่า Excel' };
+      var A = { assign: 'ใส่', clear: 'ทำให้ว่าง', revert: 'คืนค่า Excel', new_part: '🆕 แจ้ง Part ใหม่', delete_new_part: 'ลบ Part ใหม่' };
       $('logBox').innerHTML = rows.length ? rows.map(function (r) {
         return '<div class="log-row"><b>' + esc(String(r.loc).replace(/^H9-/, '')) + '</b> ' + esc(A[r.action] || r.action) + ': ' + esc(r.old || 'ว่าง') + ' → <b>' + esc(r.code || (r.action === 'revert' ? 'ตาม Excel' : 'ว่าง')) + '</b>' +
           '<div class="small muted">' + esc(String(r.at).replace('T', ' ').slice(0, 16)) + ' · ' + esc(r.by) + (r.note ? ' · ' + esc(r.note) : '') + '</div></div>';
