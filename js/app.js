@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0420'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0423'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -1294,9 +1294,7 @@ function kdCheck() {
     if (tNew && (!tOld || tNew - tOld > 5000)) loadKd(true);
   }, function () { KD.checking = false; KD.checkedAt = Date.now(); });
 }
-setInterval(function () { if (S.tab === 'kd' && document.visibilityState !== 'hidden' && Date.now() - KD.checkedAt >= KD_CHECK_MS - 1000) kdCheck(); }, 15000);
 function kdRefresh() {
-  if (S.tab === 'kd' && $('main') && $('modal').classList.contains('hidden')) renderKd(true);
   if ($('kdBox')) $('kdBox').innerHTML = kdDetailInner(S.kdDetail);
 }
 
@@ -1304,6 +1302,7 @@ function kdRefresh() {
 function kdDetailHtml(p) {
   S.kdDetail = p;
   if (!KD.snap && !KD.loading) loadKd(false);
+  else if (Date.now() - KD.checkedAt > KD_CHECK_MS) setTimeout(kdCheck, 0);
   return '<div class="kd-box" id="kdBox">' + kdDetailInner(p) + '</div>';
 }
 function kdDetailInner(p) {
@@ -1326,65 +1325,20 @@ function kdDetailInner(p) {
     }).join('') + '</tbody></table>';
 }
 
-// ---------- แท็บ 📊 Kingdee ----------
-function renderKd(keepInput) {
-  if (!KD.snap && !KD.loading && !KD.err) loadKd(false);
-  if (Date.now() - KD.checkedAt > KD_CHECK_MS) setTimeout(kdCheck, 0);
-  var f = S.kdf || 'all', q = keepInput && $('kdq') ? $('kdq').value : (S.kdq || '');
-  var list = PARTS.filter(function (p) { return p.code; }), st = { has: 0, h9: 0, otherOnly: 0, none: 0 };
-  var sums = {};
-  list.forEach(function (p) {
-    var s = sums[p.code] = kdSum(p.code);
-    if (s.h9 + s.other > 0) st.has++; else st.none++;
-    if (s.h9 > 0) st.h9++; else if (s.other > 0) st.otherOnly++;
-  });
-  var toks = tokens(q);
-  var shown = list.filter(function (p) {
-    var s = sums[p.code];
-    if (f === 'h9' && !(s.h9 > 0)) return false;
-    if (f === 'other' && !(s.h9 <= 0 && s.other > 0)) return false;
-    if (f === 'none' && s.h9 + s.other > 0) return false;
-    for (var i = 0; i < toks.length; i++) if (p.hay.indexOf(toks[i]) < 0) return false;
-    return true;
-  }).sort(locOrder);
-  var snapTxt = KD.loading ? '⏳ กำลังดึงยอด Kingdee…' : KD.err ? '<span style="color:var(--red)">' + esc(KD.err) + '</span>' + (KD.snap ? ' · แสดงยอดล่าสุดที่เก็บไว้' : '')
-    : KD.snap ? 'ยอด Kingdee ณ <b>' + esc(kdWhen(KD.snap)) + '</b> · เช็คอัปเดตทุก 1 นาที' : 'ยังไม่มียอด Kingdee';
-  var top =
-    '<div class="set-card kd-top"><div class="small">' + snapTxt + ' <button class="btn sm" id="kdReload">🔄</button></div>' +
-    '<div class="small muted">ข้อมูลจาก Kingdee ผ่าน OnHand-Inventory-Planner (ชุดเดียวกับแอป PDA Location Scan) · Kingdee ไม่มีช่อง H9 จึงแสดงยอดตามคลัง</div>' +
-    '<div class="tiles" style="margin-top:8px">' +
-      '<div class="tile"><b>' + st.has + '</b><span>Part มีของใน Kingdee</span></div>' +
-      '<div class="tile"><b>' + st.h9 + '</b><span>มีใน H9 Workshop</span></div>' +
-      '<div class="tile warn"><b>' + st.none + '</b><span>ไม่มีของเลย</span></div></div></div>';
-  var search = '<div class="search ck-search"><div class="search-wrap"><input id="kdq" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ค้นหา Location / รหัส / ชื่อ" value="' + esc(q) + '"></div></div>';
-  var filters =
-      '<button class="fchip' + (f === 'all' ? ' active' : '') + '" data-kdf="all">ทั้งหมด ' + list.length + '</button>' +
-      '<button class="fchip' + (f === 'h9' ? ' active' : '') + '" data-kdf="h9">มีใน H9 Workshop ' + st.h9 + '</button>' +
-      '<button class="fchip' + (f === 'other' ? ' active' : '') + '" data-kdf="other">H9 ไม่มี แต่คลังอื่นมี ' + st.otherOnly + '</button>' +
-      '<button class="fchip' + (f === 'none' ? ' active' : '') + '" data-kdf="none">ไม่มีใน Kingdee ' + st.none + '</button>';
-  var body = '<div class="count"><span>' + shown.length + ' รายการ</span>' + (shown.length > 150 ? '<span>แสดง 150 รายการแรก</span>' : '') + '</div>' +
-    shown.slice(0, 150).map(function (p) {
-      var s = sums[p.code];
-      return '<button class="kd-row ' + lnCls(p) + '" data-i="' + p.i + '"><div class="l">' + esc(p.short || 'รอจัด') + '</div>' +
-        '<div class="m"><div class="code">' + esc(p.code) + '</div><div class="small">' + esc(p.name) + '</div></div>' +
-        '<div class="q"><div class="h9' + (s.h9 > 0 ? '' : ' zero') + '">' + kdFmt(s.h9) + '</div><div class="small muted">H9 · อื่น ' + kdFmt(s.other) + (s.unit ? ' ' + esc(s.unit) : '') + '</div></div></button>';
-    }).join('');
-  // พิมพ์ค้นหาอยู่ → อัปเดตเฉพาะส่วนอื่น ไม่แตะช่องค้นหา (ไม่หลุดโฟกัส)
-  if (keepInput && $('kdList')) { $('kdTop').innerHTML = top; $('kdFilters').innerHTML = filters; $('kdList').innerHTML = body; }
-  else {
-    $('main').innerHTML = '<div id="kdTop">' + top + '</div>' + search + '<div class="filters" id="kdFilters">' + filters + '</div><div id="kdList">' + body + '</div>';
-    $('kdq').oninput = function () { S.kdq = this.value; renderKd(true); };
-  }
-  $('kdReload').onclick = function () { loadKd(true); };
-  Array.prototype.forEach.call(document.querySelectorAll('[data-kdf]'), function (b) {
-    b.onclick = function () { S.kdf = b.getAttribute('data-kdf'); renderKd(true); };
-  });
-  bindKdRows();
-}
-function bindKdRows() {
-  Array.prototype.forEach.call(document.querySelectorAll('.kd-row[data-i]'), function (b) {
-    b.onclick = function () { showDetail(PARTS[+b.getAttribute('data-i')]); };
-  });
+// ---------- แท็บ 📊 Kingdee = เมนู Kingdee ของแอป PDA Location Scan (ฝังทั้งหน้า) ----------
+// สองแอปอยู่โดเมนเดียวกัน (jrh91234.github.io) → ใช้ localStorage ร่วมกัน: ตั้ง pda_view = 'kd' ให้แอป PDA เปิดหน้า Kingdee
+// และส่งชื่อผู้ใช้ไปเป็นชื่อผู้สแกน (ถ้าแอป PDA ยังไม่มีชื่อ) → ได้เมนูตัวจริง อัปเดตตามแอป PDA เสมอ
+var PDA_URL = /\/H9-part-location\//i.test(location.pathname) ? location.pathname.replace(/\/H9-part-location\/.*$/i, '/pda-location-scan/') : 'https://jrh91234.github.io/pda-location-scan/';
+function renderKd() {
+  try {
+    localStorage.setItem('pda_view', 'kd');
+    var u = localStorage.getItem('pda_user');
+    if (!u || u.trim().length < 2 || /^[0\-]+$/.test(u.trim())) localStorage.setItem('pda_user', userName());
+  } catch (e) { /* โหมดส่วนตัว */ }
+  $('main').innerHTML =
+    '<div class="kd-embed-bar"><span>📊 เมนู Kingdee จากแอป <b>PDA Location Scan</b></span>' +
+      '<a class="btn sm" href="' + PDA_URL + '" target="_blank" rel="noopener">↗ เปิดเต็มจอ</a></div>' +
+    '<iframe class="kd-frame" id="kdFrame" src="' + PDA_URL + '?from=h9" title="Kingdee (PDA Location Scan)" allow="camera"></iframe>';
 }
 
 // ======================= QR ลิงก์เข้าหน้าเว็บ =======================

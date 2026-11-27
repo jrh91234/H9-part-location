@@ -299,3 +299,6 @@ a.btn { text-decoration: none; color: inherit; display: block; }
 .kd-row .q .h9.zero { color: var(--muted); }
 .kd-t td:nth-child(2), .kd-t td:nth-child(3) { white-space: nowrap; font-size: 12px; overflow-wrap: normal; }
 .kd-box { overflow-x: auto; }
+/* แท็บ Kingdee: ฝังเมนูจากแอป PDA */
+.kd-embed-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; margin-bottom: 8px; }
+.kd-frame { display: block; width: 100%; height: calc(100vh - 175px); height: calc(100dvh - 175px); border: 1px solid var(--line); border-radius: 12px; background: #fff; }
