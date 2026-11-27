@@ -70,8 +70,8 @@ main { padding: 12px; max-width: 720px; margin: 0 auto; padding-bottom: 40px; }
 mark { background: #ffe46b; color: inherit; border-radius: 3px; padding: 0 1px; }
 
 /* รายละเอียด (modal) */
-.modal { position: fixed; inset: 0; z-index: 20; background: rgba(15,22,35,.55); display: flex; align-items: flex-end; justify-content: center; }
-.sheet { background: var(--card); width: 100%; max-width: 720px; max-height: 92vh; overflow: auto; border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); animation: up .18s ease-out; }
+.modal { position: fixed; inset: 0; height: 100vh; height: 100dvh; z-index: 20; background: rgba(15,22,35,.55); display: flex; align-items: flex-end; justify-content: center; }
+.sheet { background: var(--card); width: 100%; max-width: 720px; max-height: 92vh; max-height: 92dvh; overflow: auto; overscroll-behavior: contain; border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); animation: up .18s ease-out; }
 @keyframes up { from { transform: translateY(30px); opacity: .5; } to { transform: none; opacity: 1; } }
 .sheet h3 { margin: 0 0 10px; font-size: 18px; }
 .loc-hero { text-align: center; border-radius: 14px; padding: 14px 10px; background: var(--blue-soft); color: var(--blue); margin-bottom: 12px; }

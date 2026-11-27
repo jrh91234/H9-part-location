@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0432'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0446'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -93,8 +93,11 @@ function toast(msg, ms) {
 }
 function openModal(html) {
   var m = $('modal');
+  // ปิดแป้นพิมพ์ (iPhone ดันหน้าขึ้นเมื่อแป้นพิมพ์เปิด) แล้วเปิดหน้าต่างที่ด้านบนสุดเสมอ
+  if (document.activeElement && document.activeElement.blur && document.activeElement !== document.body) document.activeElement.blur();
   m.innerHTML = '<div class="sheet" id="sheet">' + html + '</div>';
   m.classList.remove('hidden');
+  $('sheet').scrollTop = 0;
   m.onclick = function (e) { if (e.target === m) closeModal(); };
 }
 var onModalClose = null;
@@ -199,7 +202,7 @@ function handleScan(text, src) {
   S.q = ''; if ($('q')) $('q').value = '';
   if (S.tab !== 'search') setTab('search'); else renderResults();
   if (r.parts.length === 1) showDetail(r.parts[0]);
-  if (src === 'wedge' && $('q')) $('q').select();
+  if (src === 'wedge' && $('q') && r.parts.length !== 1) $('q').select();
 }
 
 function pushRecent(t) {
@@ -860,12 +863,31 @@ function loadBom() {
   if (window.BOM) return Promise.resolve(window.BOM);
   return loadScriptOnce(BOM_URL).then(function () { return window.BOM || {}; }, function () { return {}; });
 }
+// รายชื่อวัตถุดิบจาก Kingdee Material Category (DepartmentMap ของ OnHand-Inventory-Planner ~2,400 รหัส) — ชั้นสุดท้ายของการเติมชื่อ
+var DM_URL = 'https://somrudeebanthao09.github.io/OnHand-Inventory-Planner/DepartmentMapSeed.js';
+var DM_NAMES = (function () { try { return JSON.parse(localStorage.getItem('h9pl_dmnames') || 'null'); } catch (e) { return null; } })();
+function loadDm() {
+  if (loadDm.p) return loadDm.p;
+  loadDm.p = loadScriptOnce(DM_URL + '?d=' + new Date().toISOString().slice(0, 10)).then(function () {
+    var m = {};
+    var seed = window.DEPARTMENT_SEED || {};
+    [].concat(window.DEPARTMENT_OVERRIDES || [], Array.isArray(seed) ? seed : (seed.rows || [])).forEach(function (r) {
+      var c = String(r.materialCode || '').trim().toUpperCase();
+      if (c && !m[c] && (r.materialName || r.specification)) m[c] = [String(r.materialName || ''), String(r.specification || '')];
+    });
+    if (Object.keys(m).length) { DM_NAMES = m; store('h9pl_dmnames', JSON.stringify(m)); }
+    return DM_NAMES;
+  }, function () { loadDm.p = null; return DM_NAMES; });
+  return loadDm.p;
+}
 function bomOf(code) {
   code = String(code || '').trim().toUpperCase();
   var b = window.BOM && window.BOM[code];
   if (b && (b[0] || b[1])) return { name: b[0] || '', spec: b[1] || '', src: 'BOM (PDA Location Scan)' };
   var k = KD_NAMES && KD_NAMES[code];
   if (k && (k[0] || k[1])) return { name: k[0] || '', spec: k[1] || '', src: 'Kingdee' };
+  var d = DM_NAMES && DM_NAMES[code];
+  if (d && (d[0] || d[1])) return { name: d[0] || '', spec: d[1] || '', src: 'Kingdee Material Master' };
   return null;
 }
 // ป้าย Warehouse (แบบเดียวกับ pda-location-scan): รหัส*Lot*จำนวน*Package เช่น 1005QT00586*20260904001*5000*00002
@@ -886,7 +908,7 @@ function guessCode(text) {
 }
 function newPartBtn(text) {
   var g = guessCode(text), n = newPartOf(g), bm = bomOf(g);
-  var bomTxt = bm ? '<div class="msg idle small">📦 <b>' + esc(g) + '</b> · ' + esc(bm.name) + (bm.spec ? ' (' + esc(bm.spec) + ')' : '') + '<br>มีใน ' + esc(bm.src === 'Kingdee' ? 'Kingdee' : 'BOM') + ' แต่ยังไม่มี Location ในชั้นวางนี้</div>' : '';
+  var bomTxt = bm ? '<div class="msg idle small">📦 <b>' + esc(g) + '</b> · ' + esc(bm.name) + (bm.spec ? ' (' + esc(bm.spec) + ')' : '') + '<br>มีใน ' + esc(bm.src) + ' แต่ยังไม่มี Location ในชั้นวางนี้</div>' : '';
   if (n) return bomTxt + '<div class="msg warn small">🆕 รหัส <b>' + esc(g) + '</b> แจ้งเป็น Part ใหม่ไว้แล้ว โดย ' + esc(n.by) + (n.pending ? ' (รอส่ง)' : '') + '</div>';
   return bomTxt + '<button class="btn newp-btn" data-newp="' + esc(text) + '">➕ แจ้ง Part ใหม่ (ไม่มีในระบบ)</button>';
 }
@@ -920,12 +942,12 @@ function openNewPartForm(raw) {
     } else {
       if ($('npName').value === autoName) $('npName').value = autoName = '';
       if ($('npSpec').value === autoSpec) $('npSpec').value = autoSpec = '';
-      box.innerHTML = window.BOM && KD_NAMES ? '<span class="muted">ไม่พบรหัสนี้ใน BOM และ Kingdee — กรอกชื่อเอง</span>' : '<span class="muted">กำลังค้นใน BOM / Kingdee…</span>';
+      box.innerHTML = window.BOM && KD_NAMES && DM_NAMES ? '<span class="muted">ไม่พบรหัสนี้ใน BOM / Kingdee / Material Master — กรอกชื่อเอง</span>' : '<span class="muted">กำลังค้นใน BOM / Kingdee…</span>';
     }
   }
   fillBom(); npFillHook = fillBom;
   // ค้น BOM ของแอป PDA และรายชื่อจาก Kingdee (โหลดถ้ายังไม่มีในเครื่อง)
-  Promise.all([loadBom(), KD_NAMES ? null : loadKd(false)]).then(function () { if ($('npCode')) { fillBom(); if (!$('npName').value) $('npName').focus(); } });
+  Promise.all([loadBom(), KD_NAMES ? null : loadKd(false), DM_NAMES ? null : loadDm()]).then(function () { if ($('npCode')) { fillBom(); if (!$('npName').value) $('npName').focus(); } });
   $('npCode').oninput = fillBom;
   setTimeout(function () { if ($('npName') && !$('npName').value) $('npName').focus(); }, 50);
   $('npCancel').onclick = closeModal;
@@ -1658,7 +1680,7 @@ window.addEventListener('offline', function () { updateNet(); if (S.tab === 'set
 if ('serviceWorker' in navigator && /^(https:|http:\/\/localhost)/.test(location.href)) {
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('sw.js').catch(function () { /* ไม่รองรับ → ใช้แบบออนไลน์ */ });
-    setTimeout(function () { loadBom(); }, 2500); // BOM จากแอป PDA (เก็บไว้ใช้ตอนออฟไลน์ด้วย)
+    setTimeout(function () { loadBom(); if (!DM_NAMES) loadDm(); }, 2500); // BOM จากแอป PDA + รายชื่อ Material (เก็บไว้ใช้ตอนออฟไลน์ด้วย)
     // ตอนมีเน็ต: โหลดตัวอ่านบาร์โค้ด (zxing / jsQR / ตัวกู้ QR) เก็บไว้ล่วงหน้า → สแกนด้วยกล้องได้แม้ออฟไลน์
     setTimeout(function () {
       if (navigator.onLine === false) return;
