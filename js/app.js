@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0658'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0709'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -1146,12 +1146,12 @@ function renderSettings() {
     edit += '<div class="ed-cur"><div class="big">' + esc(T) + '</div>' +
       '<div class="small">ตอนนี้: ' + (O ? partLine(O) : '<b>ช่องว่าง</b>') + '</div>' +
       (byLoc[T] && O.loc0 !== T ? '<div class="small chgtxt">✏️ เปลี่ยนจาก Excel แล้ว</div>' : '') +
-      (ASSIGN.rows[T] ? '' : (function () { var x = PARTS.filter(function (p) { return p.loc0 === T; })[0]; return x && x !== O ? '<div class="small muted">ตาม Excel: ' + esc(x.code) + '</div>' : ''; })()) + '</div>' +
+      (ASSIGN.rows[T] ? '' : (function () { var x = PARTS.filter(function (p) { return p.loc0 === T; })[0]; return x && x !== O ? '<div class="small muted">ตาม Excel: ' + esc(x.code) + '</div>' : ''; })()) +
+      (O ? '<button class="btn ed-remove" id="edRemove">🗑 เอา Part ออกจากช่องนี้</button>' : '') + '</div>' +
       '<label class="small muted">② Part ใหม่ที่จะใส่ช่องนี้</label>' +
       '<div class="ck-ngrow"><input id="edQ" type="text" autocapitalize="characters" autocomplete="off" placeholder="รหัส / Spec / ชื่อ" value="' + esc(E.q) + '">' +
         '<button class="btn" id="edCam">📷</button></div>' +
-      '<div id="edSug"></div>' +
-      '<div class="actions"><button class="btn' + (E.code === '-' ? ' primary' : '') + '" id="edEmpty">⬜ ทำให้ช่องนี้ว่าง</button></div>';
+      '<div id="edSug"></div>';
     if (N || E.code === '-') {
       edit += '<div class="ed-new">' + (N ? 'Part ใหม่: ' + partLine(N) + '<div class="small">ตอนนี้อยู่ที่: <b>' + esc(N.loc || 'รอจัดพื้นที่') + '</b></div>' : '<b>ทำให้ช่อง ' + esc(T) + ' ว่าง</b>') + '</div>';
       if (N && O && N.loc && N !== O) {
@@ -1253,7 +1253,16 @@ function renderSettings() {
         beep(true); E.code = r.parts[0].code; E.q = ''; renderSettings();
       }, { title: 'สแกนป้าย Part ใหม่' });
     };
-    $('edEmpty').onclick = function () { E.code = E.code === '-' ? '' : '-'; renderSettings(); };
+    // เอา Part ออกจากช่อง: ช่องว่าง · Part ไป "รอจัดพื้นที่" (กดครั้งเดียว ยืนยันแล้วบันทึกเลย)
+    if ($('edRemove')) $('edRemove').onclick = function () {
+      var o = byLoc[E.loc]; if (!o) return;
+      if (!confirm('เอา ' + o.code + ' (' + o.name + ') ออกจากช่อง ' + E.loc + '?\n\nช่องนี้จะว่าง และ Part จะไปอยู่ "รอจัดพื้นที่"')) return;
+      var btn = this; btn.disabled = true; btn.textContent = 'กำลังบันทึก…';
+      saveChanges([{ loc: E.loc, code: '', old: o.code }], editorBy(), 'เอา Part ออกจากช่อง').then(function (res) {
+        beep(true); toast((res && res.queued ? '📴 บันทึกในเครื่องแล้ว จะส่งเมื่อมีเน็ต: ' : '🗑 เอาออกแล้ว: ') + o.code + ' ออกจาก ' + E.loc.replace(/^H9-/, '') + ' → รอจัดพื้นที่', 4000);
+        E.code = ''; E.q = ''; renderSettings();
+      }, function (e) { beep(false); toast(e.message, 4000); btn.disabled = false; btn.textContent = '🗑 เอา Part ออกจากช่องนี้'; });
+    };
   }
   Array.prototype.forEach.call(document.querySelectorAll('[data-mode]'), function (b) {
     b.onclick = function () { E.mode = b.getAttribute('data-mode'); renderSettings(); };

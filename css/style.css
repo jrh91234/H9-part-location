@@ -309,3 +309,4 @@ a.btn { text-decoration: none; color: inherit; display: block; }
 .ck-pend.slot .pp { text-align: center; }
 .ck-auto { display: flex; align-items: center; gap: 6px; margin: -2px 2px 10px; }
 .ck-pend.slot .ck-btns2 .ck-empty { flex: 0 0 84px; }
+.btn.ed-remove { width: 100%; margin-top: 8px; background: var(--red-soft); border-color: #f2c0c0; color: var(--red); font-weight: 700; }
