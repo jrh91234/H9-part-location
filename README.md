@@ -63,6 +63,8 @@
 
 ### 🆕 แจ้ง Part ใหม่ที่ไม่มีในระบบ
 - สแกน (หน้าค้นหา หรือ ไล่เช็ค) แล้วขึ้น "ไม่พบ" → กด **➕ แจ้ง Part ใหม่ (ไม่มีในระบบ)** → ตรวจรหัส (เดาจากข้อความที่สแกนให้) ใส่ชื่อ / ช่องที่พบ / หมายเหตุ → **💾 บันทึก** (ทุกคนแจ้งได้ ไม่ต้องใช้รหัส · ผู้แจ้ง = ชื่อผู้ใช้)
+- **ดึงข้อมูลอัตโนมัติ:** ป้าย Warehouse (`รหัส*Lot*จำนวน*Package`) ใช้ส่วนแรกเป็นรหัส · ชื่อและ Spec ดึงจาก **BOM ของแอป PDA Location Scan** (`pda-location-scan/js/bom.js` โหลดตรงจากแอปนั้น จึงอัปเดตตามกัน) — ไม่ต้องกรอกเอง ถ้าไม่พบใน BOM ค่อยพิมพ์
+- ข้อความ "ไม่พบ" บอกชื่อจาก BOM ด้วย (มีใน BOM แต่ยังไม่มี Location ในชั้นวางนี้)
 - บันทึกลงชีต `NewParts` ใน Google Sheet · ไม่มีเน็ต → รอส่งให้เอง · รหัสเดิมแจ้งซ้ำ = อัปเดตรายการเดิม
 - Part ที่แจ้งเข้าระบบทันทีในกลุ่ม **🆕 Part ใหม่** สถานะ "รอจัดพื้นที่" — ค้นหาเจอทุกเครื่อง
 - เมนู ⚙ → **🆕 Part ใหม่ที่แจ้ง**: ดูรายการ · **📍 กำหนด** Location ให้ (ใช้ระบบเปลี่ยน Location เดิม) · **🗑** ลบ (เพิ่มลง Excel แล้ว / แจ้งผิด) · **⬇️ Export** CSV ไว้เพิ่มลงไฟล์ Excel
@@ -139,7 +141,7 @@ git add js/data.js index.html js/app.js version.json && git commit -m "อัป
 
 ### คอลัมน์ในชีต
 - `Assignments`: `location` · `part_code` (ว่าง = ช่องว่าง) · `updated_by` · `updated_at` · `note` — 1 แถว = 1 ช่องที่ต่างจาก Excel (แก้ในชีตตรงๆ ได้ ทุกเครื่องจะเห็นตอนซิงค์ครั้งถัดไป)
-- `NewParts`: `reported_at` · `reported_by` · `part_code` · `name` · `found_at` · `note` · `raw_scan` — Part ที่สแกนเจอแต่ไม่มีในระบบ
+- `NewParts`: `reported_at` · `reported_by` · `part_code` · `name` · `found_at` · `note` · `raw_scan` · `spec` — Part ที่สแกนเจอแต่ไม่มีในระบบ
 - `Log`: `at` · `by` · `action` (assign / clear / revert / new_part / delete_new_part) · `location` · `old_code` · `new_code` · `note`
 
 ## เปิด GitHub Pages

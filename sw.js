@@ -3,7 +3,7 @@
 //          ใช้สำเนาในเครื่องเฉพาะตอนโหลดจากเน็ตไม่ได้ (ไม่มีเน็ต / เซิร์ฟเวอร์ไม่ตอบ)
 // - ไฟล์ของแอป (หน้าเว็บ / css / js / ข้อมูล) และ ฟอนต์ / ตัวอ่านบาร์โค้ดจาก CDN ใช้หลักการเดียวกัน
 // - Google Apps Script (บันทึก/ซิงค์): ไม่ยุ่ง ให้แอปจัดการคิวรอส่งเอง
-var VERSION = '20261127-0326'; // ตั้งโดย tools/bump-version.py
+var VERSION = '20261127-0406'; // ตั้งโดย tools/bump-version.py
 var CACHE = 'h9pl-' + VERSION;
 var CDN_CACHE = 'h9pl-cdn';
 var PRECACHE = [

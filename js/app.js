@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0326'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0406'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -49,8 +49,8 @@ function newPartOf(code) { for (var i = 0; i < NEWP.length; i++) if (NEWP[i].cod
 function addNewParts() {
   NEWP.forEach(function (n) {
     var ex = byCode[n.code] && byCode[n.code][0];
-    if (ex) { if (ex.isNew) ex.name = n.name || '(ยังไม่มีชื่อ)'; return; }
-    var p = { loc: '', lv: 0, col: 0, line: '-', code: n.code, spec: '', name: n.name || '(ยังไม่มีชื่อ)', grp: NEW_GRP, st: 'แจ้งใหม่', note: n.note || '', isNew: true };
+    if (ex) { if (ex.isNew) { ex.name = n.name || '(ยังไม่มีชื่อ)'; ex.spec = String(n.spec || '').toUpperCase(); } return; }
+    var p = { loc: '', lv: 0, col: 0, line: '-', code: n.code, spec: String(n.spec || '').toUpperCase(), name: n.name || '(ยังไม่มีชื่อ)', grp: NEW_GRP, st: 'แจ้งใหม่', note: n.note || '', isNew: true };
     p.i = PARTS.length; p.loc0 = ''; PARTS.push(p);
     byCode[p.code] = [p];
     if (typeof GROUPS !== 'undefined' && GROUPS.indexOf(NEW_GRP) < 0) GROUPS.push(NEW_GRP);
@@ -837,7 +837,7 @@ function syncAssignments(force) {
 // ======================= 🆕 แจ้ง Part ใหม่ที่ไม่มีในระบบ =======================
 function saveNewParts() { store('h9pl_newparts', JSON.stringify(NEWP)); }
 function mergeNewPartLocal(item, by, at, pending) {
-  var old = newPartOf(item.code), row = { at: at, by: by, code: item.code, name: item.name || (old && old.name) || '', found: item.found || (old && old.found) || '', note: item.note || '', raw: item.raw || '', pending: !!pending };
+  var old = newPartOf(item.code), row = { at: at, by: by, code: item.code, name: item.name || (old && old.name) || '', spec: item.spec || (old && old.spec) || '', found: item.found || (old && old.found) || '', note: item.note || '', raw: item.raw || '', pending: !!pending };
   if (old) NEWP[NEWP.indexOf(old)] = row; else NEWP.push(row);
   saveNewParts(); addNewParts();
 }
@@ -846,23 +846,40 @@ function setNewParts(rows, quiet) {
   NEWP = (rows || []).slice();
   (ASSIGN.pending || []).forEach(function (op) {
     if (op.type !== 'newpart') return;
-    var o = newPartOf(op.item.code), r = { at: op.at, by: op.by, code: op.item.code, name: op.item.name, found: op.item.found, note: op.item.note, raw: op.item.raw, pending: true };
+    var o = newPartOf(op.item.code), r = { at: op.at, by: op.by, code: op.item.code, name: op.item.name, spec: op.item.spec, found: op.item.found, note: op.item.note, raw: op.item.raw, pending: true };
     if (o) NEWP[NEWP.indexOf(o)] = r; else NEWP.push(r);
   });
   saveNewParts(); addNewParts();
   if (!quiet) applyAssignments();
 }
-// เดารหัส Part จากข้อความที่สแกน: ใช้คำที่ยาวที่สุดที่เป็นตัวอักษร/ตัวเลข
+// ---------- BOM จากแอป PDA Location Scan (รหัส → [ชื่อ, Spec, …]) — โดเมนเดียวกัน โหลดตรงจากแอปนั้น (อัปเดตตามกัน) ----------
+var BOM_URL = 'https://jrh91234.github.io/pda-location-scan/js/bom.js';
+function loadBom() {
+  if (window.BOM) return Promise.resolve(window.BOM);
+  return loadScriptOnce(BOM_URL).then(function () { return window.BOM || {}; }, function () { return {}; });
+}
+function bomOf(code) { var b = window.BOM && window.BOM[String(code || '').toUpperCase()]; return b ? { name: b[0] || '', spec: b[1] || '' } : null; }
+// ป้าย Warehouse (แบบเดียวกับ pda-location-scan): รหัส*Lot*จำนวน*Package เช่น 1005QT00586*20260904001*5000*00002
+function parseWarehouseQr(text) {
+  var t = String(text || '').replace(/[\r\n\t]+/g, '').trim(), parts = t.split('*');
+  if (parts.length < 2 || !/^[A-Z0-9][A-Z0-9\-\/.]{2,39}$/i.test(parts[0].trim())) return null;
+  return { code: parts[0].trim().toUpperCase(), lot: (parts[1] || '').trim(), qty: (parts[2] || '').trim(), pkg: (parts[3] || '').trim() };
+}
+// เดารหัส Part จากข้อความที่สแกน: ป้าย Warehouse → ส่วนแรก · อื่นๆ → คำที่ยาวที่สุดที่เป็นตัวอักษร/ตัวเลข (ชอบรหัสที่มีใน BOM)
 function guessCode(text) {
   var lq = String(text || '').match(/#q=([^&\s]+)/); if (lq) { try { text = decodeURIComponent(lq[1]); } catch (e) { text = lq[1]; } }
+  var wq = parseWarehouseQr(text); if (wq) return wq.code;
+  var inBom = String(text || '').toUpperCase().split(/[^A-Z0-9\-\/]+/).filter(function (t) { return bomOf(t); })[0];
+  if (inBom) return inBom;
   var toks = String(text || '').toUpperCase().split(/[^A-Z0-9\-\/]+/).filter(function (t) { return t.length >= 3; });
   toks.sort(function (a, b) { return b.length - a.length; });
   return (toks[0] || String(text || '').trim().toUpperCase()).slice(0, 40);
 }
 function newPartBtn(text) {
-  var g = guessCode(text), n = newPartOf(g);
-  if (n) return '<div class="msg warn small">🆕 รหัส <b>' + esc(g) + '</b> แจ้งเป็น Part ใหม่ไว้แล้ว โดย ' + esc(n.by) + (n.pending ? ' (รอส่ง)' : '') + '</div>';
-  return '<button class="btn newp-btn" data-newp="' + esc(text) + '">➕ แจ้ง Part ใหม่ (ไม่มีในระบบ)</button>';
+  var g = guessCode(text), n = newPartOf(g), bm = bomOf(g);
+  var bomTxt = bm ? '<div class="msg idle small">📦 <b>' + esc(g) + '</b> · ' + esc(bm.name) + (bm.spec ? ' (' + esc(bm.spec) + ')' : '') + '<br>มีใน BOM แต่ยังไม่มี Location ในชั้นวางนี้</div>' : '';
+  if (n) return bomTxt + '<div class="msg warn small">🆕 รหัส <b>' + esc(g) + '</b> แจ้งเป็น Part ใหม่ไว้แล้ว โดย ' + esc(n.by) + (n.pending ? ' (รอส่ง)' : '') + '</div>';
+  return bomTxt + '<button class="btn newp-btn" data-newp="' + esc(text) + '">➕ แจ้ง Part ใหม่ (ไม่มีในระบบ)</button>';
 }
 document.addEventListener('click', function (e) {
   var b = e.target.closest && e.target.closest('[data-newp]'); if (!b) return;
@@ -874,16 +891,36 @@ function openNewPartForm(raw) {
   openModal('<h3>🆕 แจ้ง Part ใหม่ (ไม่มีในระบบ)</h3>' +
     '<p class="small muted">บันทึกไว้เพื่อจัด Location ภายหลัง · ทุกเครื่องเห็นรายการนี้</p>' +
     '<label class="small muted">รหัส Part *</label><input id="npCode" class="ed-note" type="text" autocapitalize="characters" autocomplete="off" maxlength="40" value="' + esc(code) + '">' +
+    '<div id="npBom" class="small"></div>' +
     '<label class="small muted">ชื่อ / รายละเอียด</label><input id="npName" class="ed-note" type="text" maxlength="120" placeholder="เช่น Label 30A ใหม่">' +
+    '<label class="small muted">Specification</label><input id="npSpec" class="ed-note" type="text" autocapitalize="characters" maxlength="60">' +
+    (parseWarehouseQr(raw) ? '<div class="small muted" style="margin-top:6px">ป้าย Warehouse: Lot <b>' + esc(parseWarehouseQr(raw).lot) + '</b> · จำนวน <b>' + esc(parseWarehouseQr(raw).qty) + '</b></div>' : '') +
     '<label class="small muted">พบอยู่ที่ช่อง (ถ้ามี)</label><input id="npFound" class="ed-note" type="text" autocapitalize="characters" autocomplete="off" placeholder="เช่น L3-07">' +
     '<label class="small muted">หมายเหตุ</label><input id="npNote" class="ed-note" type="text" maxlength="200">' +
     (raw && raw !== code ? '<div class="small muted" style="margin-top:6px;overflow-wrap:anywhere">ข้อความที่สแกน: ' + esc(raw) + '</div>' : '') +
     '<div class="small" style="margin-top:6px">ผู้แจ้ง: <b>👤 ' + esc(userName()) + '</b></div>' +
     '<div class="actions"><button class="btn" id="npCancel">ยกเลิก</button><button class="btn primary" id="npSave">💾 บันทึก</button></div>');
-  setTimeout(function () { if ($('npName')) $('npName').focus(); }, 50);
+  // ดึงชื่อ / Spec จาก BOM (แอป PDA Location Scan) — ช่องที่ผู้ใช้พิมพ์เองแล้วจะไม่ทับ
+  var autoName = '', autoSpec = '';
+  function fillBom() {
+    var b = bomOf($('npCode').value), box = $('npBom'); if (!box) return;
+    if (b) {
+      if (!$('npName').value || $('npName').value === autoName) $('npName').value = autoName = b.name;
+      if (!$('npSpec').value || $('npSpec').value === autoSpec) $('npSpec').value = autoSpec = b.spec;
+      box.innerHTML = '<span style="color:var(--green)">✅ ดึงชื่อและ Spec จาก BOM (PDA Location Scan) แล้ว</span>';
+    } else {
+      if ($('npName').value === autoName) $('npName').value = autoName = '';
+      if ($('npSpec').value === autoSpec) $('npSpec').value = autoSpec = '';
+      box.innerHTML = window.BOM ? '<span class="muted">ไม่พบรหัสนี้ใน BOM — กรอกชื่อเอง</span>' : '<span class="muted">กำลังโหลด BOM…</span>';
+    }
+  }
+  fillBom();
+  loadBom().then(function () { if ($('npCode')) { fillBom(); if (!$('npName').value) $('npName').focus(); } });
+  $('npCode').oninput = fillBom;
+  setTimeout(function () { if ($('npName') && !$('npName').value) $('npName').focus(); }, 50);
   $('npCancel').onclick = closeModal;
   $('npSave').onclick = function () {
-    var item = { code: $('npCode').value.trim().toUpperCase(), name: $('npName').value.trim(), found: '', note: $('npNote').value.trim(), raw: String(raw || '').slice(0, 300) };
+    var item = { code: $('npCode').value.trim().toUpperCase(), name: $('npName').value.trim(), spec: $('npSpec').value.trim().toUpperCase(), found: '', note: $('npNote').value.trim(), raw: String(raw || '').slice(0, 300) };
     var f = $('npFound').value.trim();
     if (item.code.length < 3) { toast('กรุณาใส่รหัส Part อย่างน้อย 3 ตัวอักษร', 2500); $('npCode').focus(); return; }
     if (byCode[item.code] && !byCode[item.code][0].isNew) { toast('รหัสนี้มีในระบบอยู่แล้ว', 2500); return; }
@@ -907,8 +944,8 @@ function reportNewPart(item) {
   });
 }
 function exportNewParts() {
-  var head = ['รหัส Part', 'ชื่อ / รายละเอียด', 'พบอยู่ที่', 'Location ที่กำหนดแล้ว', 'หมายเหตุ', 'ผู้แจ้ง', 'เวลาแจ้ง', 'ข้อความที่สแกน'];
-  var rows = NEWP.map(function (n) { var p = byCode[n.code] && byCode[n.code][0]; return [n.code, n.name, n.found, p && p.loc || '', n.note, n.by, String(n.at).replace('T', ' '), n.raw]; });
+  var head = ['รหัส Part', 'ชื่อ / รายละเอียด', 'Specification', 'พบอยู่ที่', 'Location ที่กำหนดแล้ว', 'หมายเหตุ', 'ผู้แจ้ง', 'เวลาแจ้ง', 'ข้อความที่สแกน'];
+  var rows = NEWP.map(function (n) { var p = byCode[n.code] && byCode[n.code][0]; return [n.code, n.name, n.spec || '', n.found, p && p.loc || '', n.note, n.by, String(n.at).replace('T', ' '), n.raw]; });
   var csv = '﻿' + [head].concat(rows).map(function (r) { return r.map(function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n');
   var a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -1492,6 +1529,7 @@ window.addEventListener('offline', function () { updateNet(); if (S.tab === 'set
 if ('serviceWorker' in navigator && /^(https:|http:\/\/localhost)/.test(location.href)) {
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('sw.js').catch(function () { /* ไม่รองรับ → ใช้แบบออนไลน์ */ });
+    setTimeout(function () { loadBom(); }, 2500); // BOM จากแอป PDA (เก็บไว้ใช้ตอนออฟไลน์ด้วย)
     // ตอนมีเน็ต: โหลดตัวอ่านบาร์โค้ด (zxing / jsQR / ตัวกู้ QR) เก็บไว้ล่วงหน้า → สแกนด้วยกล้องได้แม้ออฟไลน์
     setTimeout(function () {
       if (navigator.onLine === false) return;

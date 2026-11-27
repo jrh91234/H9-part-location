@@ -12,7 +12,7 @@ const ASSIGN_HEADERS = ['location', 'part_code', 'updated_by', 'updated_at', 'no
 const LOG_SHEET = 'Log';
 const LOG_HEADERS = ['at', 'by', 'action', 'location', 'old_code', 'new_code', 'note'];
 const NEW_SHEET = 'NewParts'; // Part ที่สแกนเจอแต่ไม่มีในระบบ (แจ้งจากหน้าเว็บ) — เก็บไว้ทำ Location
-const NEW_HEADERS = ['reported_at', 'reported_by', 'part_code', 'name', 'found_at', 'note', 'raw_scan'];
+const NEW_HEADERS = ['reported_at', 'reported_by', 'part_code', 'name', 'found_at', 'note', 'raw_scan', 'spec'];
 const TZ = 'Asia/Bangkok';
 const DEFAULT_PIN = '1234'; // เปลี่ยนได้ที่ Project Settings → Script Properties → ADMIN_PIN
 const LOC_RE = /^H9-L\d+-\d{2}$/;
@@ -77,7 +77,14 @@ function sheetWith_(name, headers) {
 }
 function assignSheet_() { return sheetWith_(ASSIGN_SHEET, ASSIGN_HEADERS); }
 function logSheet_() { return sheetWith_(LOG_SHEET, LOG_HEADERS); }
-function newSheet_() { return sheetWith_(NEW_SHEET, NEW_HEADERS); }
+function newSheet_() {
+  const sh = sheetWith_(NEW_SHEET, NEW_HEADERS);
+  if (sh.getLastColumn() < NEW_HEADERS.length) { // ชีตเวอร์ชันเก่า: เติมหัวคอลัมน์ใหม่ต่อท้าย
+    sh.getRange(1, 1, 1, NEW_HEADERS.length).setValues([NEW_HEADERS]);
+    sh.getRange(1, 1, sh.getMaxRows(), NEW_HEADERS.length).setNumberFormat('@');
+  }
+  return sh;
+}
 
 function now_() { return Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd'T'HH:mm:ss"); }
 // Sheets อาจแปลงข้อความเวลาเป็น Date เอง → อ่านกลับเป็นรูปแบบเดียวกันเสมอ (เรียงลำดับได้)
@@ -178,11 +185,11 @@ function readNew_(sh) {
   const n = sh.getLastRow() - 1;
   if (n <= 0) return [];
   return sh.getRange(2, 1, n, NEW_HEADERS.length).getValues().map(function (r, i) {
-    return { row: i + 2, at: ts_(r[0]), by: String(r[1]), code: String(r[2]).trim(), name: String(r[3]), found: String(r[4]), note: String(r[5]), raw: String(r[6]) };
+    return { row: i + 2, at: ts_(r[0]), by: String(r[1]), code: String(r[2]).trim(), name: String(r[3]), found: String(r[4]), note: String(r[5]), raw: String(r[6]), spec: String(r[7] || '') };
   }).filter(function (r) { return r.code; });
 }
 function publicNew_(rows) {
-  return rows.map(function (r) { return { at: r.at, by: r.by, code: r.code, name: r.name, found: r.found, note: r.note, raw: r.raw }; });
+  return rows.map(function (r) { return { at: r.at, by: r.by, code: r.code, name: r.name, found: r.found, note: r.note, raw: r.raw, spec: r.spec }; });
 }
 
 /** รายการ Part ใหม่ทั้งหมด (เก่า → ใหม่) */
@@ -190,7 +197,7 @@ function getNewParts() { return publicNew_(readNew_(newSheet_())); }
 
 /**
  * แจ้ง Part ที่สแกนเจอแต่ไม่มีในระบบ (ทุกคนแจ้งได้ ไม่ต้องใช้รหัส)
- * item: { code, name, found, note, raw } · รหัสซ้ำ → อัปเดตแถวเดิม (ไม่เพิ่มซ้ำ)
+ * item: { code, name, spec, found, note, raw } · รหัสซ้ำ → อัปเดตแถวเดิม (ไม่เพิ่มซ้ำ)
  */
 function reportNewPart(by, item) {
   by = cleanBy_(by);
@@ -202,11 +209,12 @@ function reportNewPart(by, item) {
   lock.waitLock(20000);
   try {
     const sh = newSheet_(), at = now_();
-    const vals = [at, by, code, String(item.name || '').slice(0, 120), found, String(item.note || '').slice(0, 200), String(item.raw || '').slice(0, 300)];
+    const vals = [at, by, code, String(item.name || '').slice(0, 120), found, String(item.note || '').slice(0, 200), String(item.raw || '').slice(0, 300), String(item.spec || '').slice(0, 60)];
     const old = readNew_(sh).filter(function (r) { return r.code === code; })[0];
     if (old) {
       if (!vals[3]) vals[3] = old.name;
       if (!vals[4]) vals[4] = old.found;
+      if (!vals[7]) vals[7] = old.spec;
       sh.getRange(old.row, 1, 1, NEW_HEADERS.length).setValues([vals]);
     } else sh.appendRow(vals);
     logSheet_().appendRow([at, by, 'new_part', found, '', code, String(item.name || '')]);
