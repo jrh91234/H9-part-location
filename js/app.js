@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0635'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0658'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -1137,6 +1137,7 @@ function renderSettings() {
   var ch = plannedChanges();
 
   var edit = '<div class="set-card"><h4>✏️ เปลี่ยน Part ของ Location</h4>' +
+    '<div class="small muted" style="margin-bottom:4px">กติกา: <b>1 Location ใส่ได้ 1 Part</b> และ 1 Part อยู่ได้ช่องเดียว — ใส่ Part ลงช่องที่มีของ ต้องเลือกว่า Part เดิมจะสลับไปไหน หรือไป "รอจัดพื้นที่"</div>' +
     '<label class="small muted">① Location</label>' +
     '<div class="ck-ngrow"><input id="edLoc" type="text" autocapitalize="characters" autocomplete="off" placeholder="เช่น L3-05" value="' + esc(T ? T.replace(/^H9-/, '') : '') + '">' +
       '<button class="btn" id="edLocOk">เลือก</button></div>';
@@ -1321,7 +1322,20 @@ function sendAfterQueue(op) {
   queueOp(op);
   return flushPending().then(function () { return pendingCount() ? { queued: true } : {}; }, function () { return { queued: true }; });
 }
+function oneToOneError(changes) {
+  var occ = {}, where = {}, i, l, c;
+  Object.keys(byLoc).forEach(function (k) { occ[k] = byLoc[k].code; });
+  for (i = 0; i < changes.length; i++) occ[changes[i].loc] = changes[i].code || '';
+  for (l in occ) {
+    c = occ[l]; if (!c) continue;
+    if (where[c]) return 'Part ' + c + ' จะอยู่ 2 ช่อง (' + where[c].replace(/^H9-/, '') + ' และ ' + l.replace(/^H9-/, '') + ') — 1 Part อยู่ได้ช่องเดียว';
+    where[c] = l;
+  }
+  return '';
+}
 function saveChanges(changes, by, note) {
+  var bad = oneToOneError(changes);
+  if (bad) return Promise.reject(new Error(bad));
   var op = { type: 'save', changes: changes, by: by, note: note || '', at: nowLocal(), pin: adminPin() };
   if (!apiUrl()) { applyOpLocal(op); ASSIGN.local = true; saveAssign(); applyAssignments(); return Promise.resolve({}); }
   if (pendingCount()) return sendAfterQueue(op); // มีรายการค้าง → ส่งตามลำดับ

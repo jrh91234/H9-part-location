@@ -139,6 +139,22 @@ function saveAssignments(pin, by, changes, note) {
     const sh = assignSheet_(), log = logSheet_(), at = now_();
     const rows = readAssign_(sh), byLoc = {};
     rows.forEach(function (r) { byLoc[r.loc] = r; });
+    // กติกา: 1 Location = 1 Part · 1 Part อยู่ได้ช่องเดียว
+    // ผลหลังบันทึก (แถวเดิม + ชุดนี้) ต้องไม่มีรหัสเดียวกันในหลายช่อง → ถ้ามี ให้ปฏิเสธทั้งชุด (เครื่องที่ข้อมูลเก่าจะซิงค์ใหม่แล้วลองอีกครั้ง)
+    const after = {};
+    rows.forEach(function (r) { after[r.loc] = r.code; });
+    const seenLoc = {};
+    changes.forEach(function (c) {
+      if (seenLoc[c.loc]) throw new Error('ช่อง ' + c.loc + ' ซ้ำในรายการเดียวกัน (1 ช่องใส่ได้ 1 Part)');
+      seenLoc[c.loc] = true;
+      after[c.loc] = String(c.code || '').trim().toUpperCase();
+    });
+    const where = {};
+    Object.keys(after).forEach(function (loc) {
+      const code = after[loc]; if (!code) return;
+      if (where[code]) throw new Error('Part ' + code + ' จะอยู่ 2 ช่อง (' + where[code] + ' และ ' + loc + ') — 1 Part อยู่ได้ช่องเดียว กรุณาซิงค์แล้วลองใหม่');
+      where[code] = loc;
+    });
     changes.forEach(function (c) {
       const code = String(c.code || '').trim().toUpperCase().slice(0, 40);
       const vals = [[c.loc, code, by, at, note]];
