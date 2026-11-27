@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0735'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0744'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -1142,9 +1142,22 @@ function reportNewPart(item) {
     queueOp(op); return { queued: true };
   });
 }
+// กรองรายการ Part ใหม่ตามวันที่แจ้ง: '' ทั้งหมด · today · yday · 7d · YYYY-MM-DD
+function npFiltered() {
+  var f = S.npDate || ''; if (!f) return NEWP.slice();
+  var d = new Date(), z = function (n) { return ('0' + n).slice(-2); }, ymd = function (x) { return x.getFullYear() + '-' + z(x.getMonth() + 1) + '-' + z(x.getDate()); };
+  var today = ymd(d), y = new Date(d.getTime() - 864e5), w = new Date(d.getTime() - 6 * 864e5);
+  return NEWP.filter(function (n) {
+    var day = String(n.at || '').slice(0, 10);
+    if (f === 'today') return day === today;
+    if (f === 'yday') return day === ymd(y);
+    if (f === '7d') return day >= ymd(w) && day <= today;
+    return day === f;
+  });
+}
 function exportNewParts() {
   var head = ['รหัส Part', 'ชื่อ / รายละเอียด', 'Specification', 'พบอยู่ที่', 'Location ที่กำหนดแล้ว', 'หมายเหตุ', 'ผู้แจ้ง', 'เวลาแจ้ง', 'ข้อความที่สแกน'];
-  var rows = NEWP.map(function (n) { var p = byCode[n.code] && byCode[n.code][0]; return [n.code, n.name, n.spec || '', n.found, p && p.loc || '', n.note, n.by, String(n.at).replace('T', ' '), n.raw]; });
+  var rows = npFiltered().map(function (n) { var p = byCode[n.code] && byCode[n.code][0]; return [n.code, n.name, n.spec || '', n.found, p && p.loc || '', n.note, n.by, String(n.at).replace('T', ' '), n.raw]; });
   var csv = '﻿' + [head].concat(rows).map(function (r) { return r.map(function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n');
   var a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -1260,8 +1273,15 @@ function renderSettings() {
   }
   edit += '</div>';
 
-  var newList = '<div class="set-card"><h4>🆕 Part ใหม่ที่แจ้ง (' + NEWP.length + ')</h4>' +
-    (NEWP.length ? NEWP.slice().reverse().map(function (n) {
+  var npShown = npFiltered(), npf = S.npDate || '';
+  var npChips = [['', 'ทั้งหมด'], ['today', 'วันนี้'], ['yday', 'เมื่อวาน'], ['7d', '7 วัน']].map(function (c) {
+    return '<button class="fchip' + (npf === c[0] ? ' active' : '') + '" data-npd="' + c[0] + '">' + c[1] + '</button>';
+  }).join('');
+  var newList = '<div class="set-card"><h4>🆕 Part ใหม่ที่แจ้ง (' + (npf ? npShown.length + ' จาก ' : '') + NEWP.length + ')</h4>' +
+    (NEWP.length ? '<div class="filters np-date">' + npChips +
+      '<input type="date" id="npDay" class="np-day' + (/^\d{4}-/.test(npf) ? ' active' : '') + '" value="' + (/^\d{4}-/.test(npf) ? npf : '') + '" max="' + nowLocal().slice(0, 10) + '"></div>' : '') +
+    (NEWP.length && !npShown.length ? '<div class="small muted">ไม่มีรายการในวันที่เลือก</div>' : '') +
+    (npShown.length ? npShown.slice().sort(function (a, b) { return String(b.at).localeCompare(String(a.at)); }).map(function (n) {
       var p = byCode[n.code] && byCode[n.code][0];
       return '<div class="chg-row"><div class="m"><div><b>' + esc(n.code) + '</b> ' + esc(n.name || '') + '</div>' +
         '<div class="small muted">' + (n.pending ? '<b style="color:var(--amber)">⏳ รอส่ง</b> · ' : '') + 'แจ้งโดย ' + esc(n.by) + ' · ' + esc(String(n.at).replace('T', ' ').slice(0, 16)) +
@@ -1269,8 +1289,8 @@ function renderSettings() {
         '<div class="small">Location: <b>' + esc(p && p.loc ? p.loc : 'ยังไม่กำหนด') + '</b></div></div>' +
         '<div class="np-act"><button class="btn sm" data-npset="' + esc(n.code) + '">📍 กำหนด</button>' +
         (n.pending ? '' : '<button class="btn sm" data-npdel="' + esc(n.code) + '">🗑</button>') + '</div></div>';
-    }).join('') + '<div class="actions"><button class="btn" id="npCsv">⬇️ Export รายการ Part ใหม่</button></div>'
-      : '<div class="small muted">ยังไม่มี — สแกน Part ที่ไม่มีในระบบแล้วกด "➕ แจ้ง Part ใหม่"</div>') + '</div>';
+    }).join('') + '<div class="actions"><button class="btn" id="npCsv">⬇️ Export ' + (npf ? 'ตามวันที่ที่เลือก (' + npShown.length + ')' : 'รายการ Part ใหม่') + '</button></div>'
+      : NEWP.length ? '' : '<div class="small muted">ยังไม่มี — สแกน Part ที่ไม่มีในระบบแล้วกด "➕ แจ้ง Part ใหม่"</div>') + '</div>';
   var list = '<div class="set-card"><h4>📋 ช่องที่เปลี่ยนจาก Excel (' + changed.length + ')</h4>' +
     (changed.length ? changed.map(function (l) {
       var r = ASSIGN.rows[l], x = PARTS.filter(function (p) { return p.loc0 === l; })[0];
@@ -1376,6 +1396,10 @@ function renderSettings() {
     };
   });
   if ($('npCsv')) $('npCsv').onclick = exportNewParts;
+  Array.prototype.forEach.call(document.querySelectorAll('[data-npd]'), function (b) {
+    b.onclick = function () { S.npDate = b.getAttribute('data-npd'); renderSettings(); };
+  });
+  if ($('npDay')) $('npDay').onchange = function () { S.npDate = this.value || ''; renderSettings(); };
   Array.prototype.forEach.call(document.querySelectorAll('[data-npset]'), function (b) {
     b.onclick = function () {
       var n = newPartOf(b.getAttribute('data-npset')), p = byCode[n.code] && byCode[n.code][0];
