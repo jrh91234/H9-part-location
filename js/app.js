@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0709'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0723'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -403,13 +403,15 @@ function showDetail(p) {
     kdDetailHtml(p) +
     '<div class="actions">' + (p.loc ? '<button class="btn" id="dMap">🗂 ดูในผัง</button>' : '') +
       '<button class="btn primary" id="dScan">📷 สแกนต่อ</button></div>' +
-    '<div class="actions"><button class="btn" id="dQr">🔗 QR ลิงก์</button><button class="btn" id="dEdit">✏️ เปลี่ยน Part</button></div>' +
+    '<div class="actions"><button class="btn' + (p.loc ? '' : ' primary') + '" id="dEdit">📍 ' + (p.loc ? 'ย้ายไปช่องอื่น' : 'เลือกช่องให้ Part นี้') + '</button></div>' +
+    '<div class="actions"><button class="btn" id="dQr">🔗 QR ลิงก์</button>' + (p.loc ? '<button class="btn" id="dEdit2">✏️ เปลี่ยน Part ในช่อง</button>' : '') + '</div>' +
     '<div class="actions"><button class="btn" id="dClose">ปิด</button></div>');
   Array.prototype.forEach.call(document.querySelectorAll('[data-copy]'), function (b) {
     b.onclick = function () { copy(b.getAttribute('data-copy')); };
   });
   $('dClose').onclick = closeModal;
-  $('dEdit').onclick = function () { closeModal(); openSettings({ loc: p.loc || '', code: p.loc ? '' : p.code }); };
+  $('dEdit').onclick = function () { closeModal(); openSlotPicker(p); };
+  if ($('dEdit2')) $('dEdit2').onclick = function () { closeModal(); openSettings({ loc: p.loc, code: '' }); };
   $('dQr').onclick = function () {
     var key = p.loc || p.code;
     showQr(APP_URL + '#q=' + encodeURIComponent(key), p.loc || p.code, (p.loc ? p.code + ' · ' : '') + p.name,
@@ -417,6 +419,41 @@ function showDetail(p) {
   };
   $('dScan').onclick = function () { closeModal(); openCameraScanner(function (t) { handleScan(t, 'cam'); }); };
   if ($('dMap')) $('dMap').onclick = function () { closeModal(); S.mapLv = p.lv; S.mark = p.loc; setTab('map'); scrollToSlot(); };
+}
+
+// ---------- 📍 เลือกช่องให้ Part (จากหน้ารายละเอียด) → ไปยืนยันในเมนู ⚙ ----------
+function openSlotPicker(p) {
+  var empty = ALL_LOCS.filter(function (l) { return !byLoc[l]; });
+  var rows = LV_LIST.map(function (lv) {
+    var cells = '';
+    for (var c = 1; c <= MAX_COL; c++) {
+      var loc = 'H9-L' + lv + '-' + ('0' + c).slice(-2), q = byLoc[loc];
+      if (c > LEVELS[lv]) { cells += '<div class="rc void"></div>'; continue; }
+      cells += '<div class="rc ' + (q ? lnCls(q) : 'free') + (loc === p.loc ? ' on' : '') + '" data-pick="' + loc + '" title="' + loc + '"></div>';
+    }
+    return '<div class="rack-row"><div class="rack-lv">L' + lv + '</div><div class="rack-cells">' + cells + '</div></div>';
+  }).join('');
+  openModal('<h3>📍 เลือกช่องให้ ' + esc(p.code) + '</h3>' +
+    '<div class="small muted" style="margin-bottom:8px">' + esc(p.name) + ' · ตอนนี้: <b>' + esc(p.loc || 'รอจัดพื้นที่') + '</b></div>' +
+    '<label class="small muted">พิมพ์ช่อง</label>' +
+    '<div class="ck-ngrow"><input id="pkLoc" type="text" autocapitalize="characters" autocomplete="off" placeholder="เช่น L3-07"><button class="btn primary" id="pkGo">เลือก</button></div>' +
+    '<div class="small" style="margin:10px 0 4px"><b>⬜ ช่องว่าง (' + empty.length + ')</b>' + (empty.length ? '' : ' <span class="muted">— ไม่มีช่องว่าง เลือกช่องที่มีของได้ (Part เดิมจะสลับ / ไปรอจัดพื้นที่)</span>') + '</div>' +
+    (empty.length ? '<div class="pk-free">' + empty.map(function (l) { return '<button class="btn sm" data-pick="' + l + '">' + esc(l.replace(/^H9-/, '')) + '</button>'; }).join('') + '</div>' : '') +
+    '<div class="small" style="margin:10px 0 4px"><b>หรือแตะในผัง</b> <span class="muted">(ขาว = ว่าง · สี = มี Part)</span></div>' +
+    '<div class="rack pick">' + rows + '<div class="rack-axis"><div></div><div><span>01</span><span>10</span><span>20</span><span>30</span><span>' + MAX_COL + '</span></div></div></div>' +
+    '<div id="pkInfo" class="small"></div>' +
+    '<div class="actions"><button class="btn" id="pkClose">ยกเลิก</button></div>');
+  function go(loc) {
+    if (!locExists(loc)) { toast('ไม่มีช่องนี้ในผัง (เช่น L3-07)', 2500); return; }
+    if (loc === p.loc) { toast('Part นี้อยู่ช่องนี้อยู่แล้ว', 2000); return; }
+    closeModal(); openSettings({ loc: loc, code: p.code });
+  }
+  $('pkClose').onclick = closeModal;
+  $('pkGo').onclick = function () { go(normLoc($('pkLoc').value)); };
+  $('pkLoc').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); go(normLoc(this.value)); } };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-pick]'), function (b) {
+    b.onclick = function () { go(b.getAttribute('data-pick')); };
+  });
 }
 
 function renderMap() {
