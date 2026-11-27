@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0406'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0420'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -257,6 +257,7 @@ function render() {
     '<div class="tabs">' +
       '<button data-tab="search" class="' + (S.tab === 'search' ? 'active' : '') + '">🔎 ค้นหา</button>' +
       '<button data-tab="check" class="' + (S.tab === 'check' ? 'active' : '') + '">✅ ไล่เช็ค</button>' +
+      '<button data-tab="kd" class="' + (S.tab === 'kd' ? 'active' : '') + '">📊 Kingdee</button>' +
       '<button data-tab="map" class="' + (S.tab === 'map' ? 'active' : '') + '">🗂 ผัง</button>' +
     '</div><main id="main"></main>';
   Array.prototype.forEach.call(document.querySelectorAll('[data-tab]'), function (b) {
@@ -268,7 +269,7 @@ function render() {
   $('appSet').onclick = function () { openSettings(); };
   $('appUser').onclick = openUserMenu;
   updateNet();
-  if (S.tab === 'search') renderSearch(); else if (S.tab === 'check') renderCheck(); else if (S.tab === 'settings') renderSettings(); else renderMap();
+  if (S.tab === 'search') renderSearch(); else if (S.tab === 'check') renderCheck(); else if (S.tab === 'settings') renderSettings(); else if (S.tab === 'kd') renderKd(); else renderMap();
 }
 function setTab(t) { S.tab = t; render(); window.scrollTo(0, 0); }
 
@@ -396,6 +397,7 @@ function showDetail(p) {
       '<div class="k">Data Status</div><div class="v">' + esc(p.st) + '</div>' +
       (p.note ? '<div class="k">หมายเหตุ</div><div class="v" style="color:var(--amber)">⚠️ ' + esc(p.note) + '</div>' : '') +
     '</div>' +
+    kdDetailHtml(p) +
     '<div class="actions">' + (p.loc ? '<button class="btn" id="dMap">🗂 ดูในผัง</button>' : '') +
       '<button class="btn primary" id="dScan">📷 สแกนต่อ</button></div>' +
     '<div class="actions"><button class="btn" id="dQr">🔗 QR ลิงก์</button><button class="btn" id="dEdit">✏️ เปลี่ยน Part</button></div>' +
@@ -1224,6 +1226,164 @@ function revertChange(loc, by) {
   return api('revertAssignment', op.pin, by, loc, op.oldCode, op.newCode).then(setAssignRows, function (e) {
     if (!e.network) throw e;
     queueOp(op); return { queued: true };
+  });
+}
+
+// ======================= 📊 ยอด Kingdee (ดูอย่างเดียว) =======================
+// แหล่งเดียวกับแอป PDA Location Scan: OnHand-Inventory-Planner (ระบบดึงจาก Kingdee ทุก 10 นาที)
+// Kingdee ไม่มีช่อง H9 (H9-Lx-xx) → แสดงยอดคงคลังของแต่ละ Part แยกตามคลัง / ช่องคลัง / Lot แทนการเทียบทีละช่อง
+// เก็บเฉพาะแถวของรหัสที่มีในแอปนี้ (ไม่กี่ร้อย KB) ไว้ในเครื่อง → ดูได้ตอนออฟไลน์ (ยอด ณ เวลาที่โหลดล่าสุด)
+var KD_URL = 'https://somrudeebanthao09.github.io/OnHand-Inventory-Planner/OnHandSeed.js';
+var KD_H9_WH = 'H9 Assembly-Workshop Warehouse';
+var KD_CHECK_MS = 60000;
+var KD = (function () {
+  try { var d = JSON.parse(localStorage.getItem('h9pl_kd') || 'null'); if (d && d.rows) return d; } catch (e) { /* ไม่มี/เสีย */ }
+  return { rows: {}, snap: '', lastMod: '' };
+})();
+KD.loading = false; KD.err = ''; KD.checkedAt = 0; KD.checking = false;
+// แถว: [lot, qty, unit, warehouse, storage, status]
+function kdSave() { store('h9pl_kd', JSON.stringify({ rows: KD.rows, snap: KD.snap, lastMod: KD.lastMod })); }
+function kdUsable(r) { return r[5] === 'Available' && !/defective|scrap/i.test(r[3]); }
+function kdShortWh(w) {
+  return String(w || '').replace(/ Warehouse$/i, '').replace('Semi-finished Product', 'Semi-FG').replace('Customer Supplied Material', 'Customer Supplied')
+    .replace('H9 Assembly-Workshop', 'H9 Workshop').replace('Purchased parts', 'Purchased');
+}
+function kdFmt(n) { n = Number(n) || 0; return n % 1 ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : n.toLocaleString(); }
+// สรุปของ 1 รหัส: h9 = ยอดใช้ได้ในคลัง H9 Workshop · other = ยอดใช้ได้คลังอื่น · bad = ชำรุด/เศษ
+function kdSum(code) {
+  var rows = KD.rows[code] || [], s = { h9: 0, other: 0, bad: 0, unit: '', n: rows.length };
+  rows.forEach(function (r) {
+    s.unit = s.unit || r[2];
+    if (!kdUsable(r)) s.bad += r[1]; else if (r[3] === KD_H9_WH) s.h9 += r[1]; else s.other += r[1];
+  });
+  return s;
+}
+function kdWhen(iso) {
+  var d = new Date(iso); if (isNaN(d)) return '-';
+  var z = function (n) { return ('0' + n).slice(-2); };
+  return z(d.getDate()) + '/' + z(d.getMonth() + 1) + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
+}
+function loadKd(force) {
+  if (KD.loading) return Promise.resolve();
+  KD.loading = true; KD.err = ''; kdRefresh();
+  return fetch(KD_URL + (force ? '?t=' + Date.now() : ''), { cache: force ? 'no-store' : 'default' }).then(function (r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var lm = r.headers.get('Last-Modified'); if (lm) KD.lastMod = lm;
+    return r.text();
+  }).then(function (t) {
+    var d = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)), rows = {};
+    (d.inventory || []).forEach(function (r) {
+      var code = String(r.partCode || r.materialCode || '').trim().toUpperCase(); if (!byCode[code]) return;
+      var q = Number(r.onHandQty != null ? r.onHandQty : r.onHand); if (!q) return;
+      (rows[code] = rows[code] || []).push([String(r.lotNumber || '').trim(), q, String(r.unit || ''), String(r.warehouse || ''), String(r.storage || '').trim(), String(r.status || '')]);
+    });
+    KD.rows = rows; KD.snap = d.snapshotAt || ''; KD.loading = false; KD.checkedAt = Date.now();
+    kdSave(); kdRefresh();
+  }).catch(function (e) {
+    KD.loading = false; KD.err = 'ดึงยอด Kingdee ไม่ได้: ' + (e.message || e); kdRefresh();
+  });
+}
+// ทุก 1 นาที (เฉพาะตอนเปิดแท็บ Kingdee) ถามแค่ "ไฟล์ต้นทางเปลี่ยนเมื่อไร" (HEAD) → เปลี่ยนแล้วค่อยโหลดไฟล์จริง
+function kdCheck() {
+  if (KD.checking || KD.loading) return;
+  if (!KD.snap || !KD.lastMod) { loadKd(true); return; }
+  KD.checking = true;
+  fetch(KD_URL + '?h=' + Date.now(), { method: 'HEAD', cache: 'no-store' }).then(function (r) {
+    KD.checking = false; KD.checkedAt = Date.now();
+    var tNew = Date.parse(r.ok && r.headers.get('Last-Modified') || ''), tOld = Date.parse(KD.lastMod || '');
+    if (tNew && (!tOld || tNew - tOld > 5000)) loadKd(true);
+  }, function () { KD.checking = false; KD.checkedAt = Date.now(); });
+}
+setInterval(function () { if (S.tab === 'kd' && document.visibilityState !== 'hidden' && Date.now() - KD.checkedAt >= KD_CHECK_MS - 1000) kdCheck(); }, 15000);
+function kdRefresh() {
+  if (S.tab === 'kd' && $('main') && $('modal').classList.contains('hidden')) renderKd(true);
+  if ($('kdBox')) $('kdBox').innerHTML = kdDetailInner(S.kdDetail);
+}
+
+// ---------- ตารางยอด Kingdee ของ 1 Part (ใช้ในหน้ารายละเอียด) ----------
+function kdDetailHtml(p) {
+  S.kdDetail = p;
+  if (!KD.snap && !KD.loading) loadKd(false);
+  return '<div class="kd-box" id="kdBox">' + kdDetailInner(p) + '</div>';
+}
+function kdDetailInner(p) {
+  if (!p) return '';
+  if (!KD.snap) return '<div class="small muted">' + (KD.loading ? '⏳ กำลังดึงยอด Kingdee…' : KD.err ? esc(KD.err) : 'ยังไม่มียอด Kingdee') + '</div>';
+  var rows = (KD.rows[p.code] || []).slice().sort(function (a, b) {
+    return (b[3] === KD_H9_WH) - (a[3] === KD_H9_WH) || kdUsable(b) - kdUsable(a) || a[3].localeCompare(b[3]) || a[4].localeCompare(b[4]);
+  });
+  var s = kdSum(p.code);
+  var head = '<div class="kd-h">📊 ยอด Kingdee <span class="muted small">ณ ' + esc(kdWhen(KD.snap)) + '</span></div>';
+  if (!rows.length) return head + '<div class="small muted">ไม่มียอดคงคลังใน Kingdee</div>';
+  return head +
+    '<div class="kd-sum"><span class="h9">H9 Workshop <b>' + kdFmt(s.h9) + '</b></span><span>คลังอื่น <b>' + kdFmt(s.other) + '</b></span>' +
+      (s.bad ? '<span class="bad">ชำรุด/เศษ <b>' + kdFmt(s.bad) + '</b></span>' : '') + '<span class="muted">' + esc(s.unit) + '</span></div>' +
+    '<table class="kd-t"><thead><tr><th>คลัง</th><th>ที่เก็บ</th><th>Lot</th><th>จำนวน</th></tr></thead><tbody>' +
+    rows.map(function (r) {
+      var cls = r[3] === KD_H9_WH ? 'h9' : kdUsable(r) ? '' : 'bad';
+      return '<tr class="' + cls + '"><td>' + esc(kdShortWh(r[3])) + (r[5] !== 'Available' ? ' <span class="tag warn">' + esc(r[5]) + '</span>' : '') + '</td>' +
+        '<td>' + esc(r[4] || '-') + '</td><td>' + esc(r[0] || '-') + '</td><td class="n">' + kdFmt(r[1]) + '</td></tr>';
+    }).join('') + '</tbody></table>';
+}
+
+// ---------- แท็บ 📊 Kingdee ----------
+function renderKd(keepInput) {
+  if (!KD.snap && !KD.loading && !KD.err) loadKd(false);
+  if (Date.now() - KD.checkedAt > KD_CHECK_MS) setTimeout(kdCheck, 0);
+  var f = S.kdf || 'all', q = keepInput && $('kdq') ? $('kdq').value : (S.kdq || '');
+  var list = PARTS.filter(function (p) { return p.code; }), st = { has: 0, h9: 0, otherOnly: 0, none: 0 };
+  var sums = {};
+  list.forEach(function (p) {
+    var s = sums[p.code] = kdSum(p.code);
+    if (s.h9 + s.other > 0) st.has++; else st.none++;
+    if (s.h9 > 0) st.h9++; else if (s.other > 0) st.otherOnly++;
+  });
+  var toks = tokens(q);
+  var shown = list.filter(function (p) {
+    var s = sums[p.code];
+    if (f === 'h9' && !(s.h9 > 0)) return false;
+    if (f === 'other' && !(s.h9 <= 0 && s.other > 0)) return false;
+    if (f === 'none' && s.h9 + s.other > 0) return false;
+    for (var i = 0; i < toks.length; i++) if (p.hay.indexOf(toks[i]) < 0) return false;
+    return true;
+  }).sort(locOrder);
+  var snapTxt = KD.loading ? '⏳ กำลังดึงยอด Kingdee…' : KD.err ? '<span style="color:var(--red)">' + esc(KD.err) + '</span>' + (KD.snap ? ' · แสดงยอดล่าสุดที่เก็บไว้' : '')
+    : KD.snap ? 'ยอด Kingdee ณ <b>' + esc(kdWhen(KD.snap)) + '</b> · เช็คอัปเดตทุก 1 นาที' : 'ยังไม่มียอด Kingdee';
+  var top =
+    '<div class="set-card kd-top"><div class="small">' + snapTxt + ' <button class="btn sm" id="kdReload">🔄</button></div>' +
+    '<div class="small muted">ข้อมูลจาก Kingdee ผ่าน OnHand-Inventory-Planner (ชุดเดียวกับแอป PDA Location Scan) · Kingdee ไม่มีช่อง H9 จึงแสดงยอดตามคลัง</div>' +
+    '<div class="tiles" style="margin-top:8px">' +
+      '<div class="tile"><b>' + st.has + '</b><span>Part มีของใน Kingdee</span></div>' +
+      '<div class="tile"><b>' + st.h9 + '</b><span>มีใน H9 Workshop</span></div>' +
+      '<div class="tile warn"><b>' + st.none + '</b><span>ไม่มีของเลย</span></div></div></div>';
+  var search = '<div class="search ck-search"><div class="search-wrap"><input id="kdq" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ค้นหา Location / รหัส / ชื่อ" value="' + esc(q) + '"></div></div>';
+  var filters =
+      '<button class="fchip' + (f === 'all' ? ' active' : '') + '" data-kdf="all">ทั้งหมด ' + list.length + '</button>' +
+      '<button class="fchip' + (f === 'h9' ? ' active' : '') + '" data-kdf="h9">มีใน H9 Workshop ' + st.h9 + '</button>' +
+      '<button class="fchip' + (f === 'other' ? ' active' : '') + '" data-kdf="other">H9 ไม่มี แต่คลังอื่นมี ' + st.otherOnly + '</button>' +
+      '<button class="fchip' + (f === 'none' ? ' active' : '') + '" data-kdf="none">ไม่มีใน Kingdee ' + st.none + '</button>';
+  var body = '<div class="count"><span>' + shown.length + ' รายการ</span>' + (shown.length > 150 ? '<span>แสดง 150 รายการแรก</span>' : '') + '</div>' +
+    shown.slice(0, 150).map(function (p) {
+      var s = sums[p.code];
+      return '<button class="kd-row ' + lnCls(p) + '" data-i="' + p.i + '"><div class="l">' + esc(p.short || 'รอจัด') + '</div>' +
+        '<div class="m"><div class="code">' + esc(p.code) + '</div><div class="small">' + esc(p.name) + '</div></div>' +
+        '<div class="q"><div class="h9' + (s.h9 > 0 ? '' : ' zero') + '">' + kdFmt(s.h9) + '</div><div class="small muted">H9 · อื่น ' + kdFmt(s.other) + (s.unit ? ' ' + esc(s.unit) : '') + '</div></div></button>';
+    }).join('');
+  // พิมพ์ค้นหาอยู่ → อัปเดตเฉพาะส่วนอื่น ไม่แตะช่องค้นหา (ไม่หลุดโฟกัส)
+  if (keepInput && $('kdList')) { $('kdTop').innerHTML = top; $('kdFilters').innerHTML = filters; $('kdList').innerHTML = body; }
+  else {
+    $('main').innerHTML = '<div id="kdTop">' + top + '</div>' + search + '<div class="filters" id="kdFilters">' + filters + '</div><div id="kdList">' + body + '</div>';
+    $('kdq').oninput = function () { S.kdq = this.value; renderKd(true); };
+  }
+  $('kdReload').onclick = function () { loadKd(true); };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-kdf]'), function (b) {
+    b.onclick = function () { S.kdf = b.getAttribute('data-kdf'); renderKd(true); };
+  });
+  bindKdRows();
+}
+function bindKdRows() {
+  Array.prototype.forEach.call(document.querySelectorAll('.kd-row[data-i]'), function (b) {
+    b.onclick = function () { showDetail(PARTS[+b.getAttribute('data-i')]); };
   });
 }
 

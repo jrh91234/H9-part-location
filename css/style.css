@@ -276,3 +276,26 @@ a.btn { text-decoration: none; color: inherit; display: block; }
 /* แจ้ง Part ใหม่ */
 .newp-btn { width: 100%; margin: 0 0 12px; background: var(--amber-soft); border-color: #f1d9a8; color: var(--amber); font-weight: 700; padding: 13px; }
 .np-act { flex: none; display: flex; flex-direction: column; gap: 6px; }
+/* 📊 Kingdee */
+.tabs button { padding-left: 2px; padding-right: 2px; font-size: 15px; }
+.kd-box { border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin-bottom: 4px; }
+.kd-h { font-weight: 700; margin-bottom: 6px; }
+.kd-sum { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 14px; margin-bottom: 6px; }
+.kd-sum .h9 { color: var(--green); } .kd-sum .bad { color: var(--red); }
+.kd-t { width: 100%; border-collapse: collapse; font-size: 13px; }
+.kd-t th, .kd-t td { padding: 5px 4px; border-bottom: 1px solid var(--line); text-align: left; overflow-wrap: anywhere; }
+.kd-t th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.kd-t td.n, .kd-t th:last-child { text-align: right; white-space: nowrap; }
+.kd-t tr.h9 td { background: var(--green-soft); }
+.kd-t tr.bad td { color: var(--muted); }
+.kd-top .tiles .tile b { font-size: 22px; }
+.kd-row { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; background: var(--card); border: 1px solid var(--line); border-left: 6px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-bottom: 6px; }
+.kd-row.ln4 { border-left-color: var(--l4); } .kd-row.ln5 { border-left-color: var(--l5); } .kd-row.ln1 { border-left-color: var(--l1); }
+.kd-row .l { flex: none; width: 58px; font-weight: 700; color: var(--blue); }
+.kd-row .m { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.kd-row .m .code { font-weight: 700; }
+.kd-row .q { flex: none; text-align: right; }
+.kd-row .q .h9 { font-size: 20px; font-weight: 700; color: var(--green); }
+.kd-row .q .h9.zero { color: var(--muted); }
+.kd-t td:nth-child(2), .kd-t td:nth-child(3) { white-space: nowrap; font-size: 12px; overflow-wrap: normal; }
+.kd-box { overflow-x: auto; }
