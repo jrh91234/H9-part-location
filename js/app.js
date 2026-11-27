@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0853'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0854'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -641,7 +641,7 @@ function ckLastHtml() {
 }
 function ckSummaryHtml() {
   var st = ckStats();
-  return '<div class="center small muted">ครบ 2 ด้าน ' + st.done + '/' + ALL_LOCS.length + ' · ✅ ' + st.ok + ' · ❌ ' + st.ng + ' · ⬜ ' + st.empty + ' · ½ ' + st.half + '</div>';
+  return '<div class="center small muted">' + (ckMode() === 'slot' ? 'เช็คแล้ว ' : 'ครบ 2 ด้าน ') + st.done + '/' + ALL_LOCS.length + ' · ✅ ' + st.ok + ' · ❌ ' + st.ng + ' · ⬜ ' + st.empty + ' · ½ ' + st.half + '</div>';
 }
 // ======== 📍 โหมดไล่ตามช่อง: เลือกช่อง → สแกน Part ที่อยู่ในช่อง → แอปเทียบว่าตรงกับ Location หรือไม่ ========
 // CK.mode = 'part' (สแกน Part → ดูช่อง) | 'slot' (ไล่ตามช่อง) · CK.cur = ช่องที่กำลังเช็ค · CK.side = ด้านที่กำลังเช็ค · CK.auto = ตรงแล้วไปช่องถัดไปเอง
@@ -649,11 +649,12 @@ function ckMode() { return CK.mode === 'slot' ? 'slot' : 'part'; }
 function ckSide() { return CK.side === 'b' ? 'b' : 'f'; }
 function slotList() { return ALL_LOCS.filter(function (l) { return byLoc[l]; }); }
 function slotStep(loc, d) { var a = slotList(), i = a.indexOf(loc); return a[Math.max(0, Math.min(a.length - 1, (i < 0 ? 0 : i + d)))] || ''; }
-function firstTodo() { var sd = ckSide(), a = slotList(); for (var i = 0; i < a.length; i++) { var r = CK.rec[a[i]]; if (!r || !r[sd]) return a[i]; } return a[0] || ''; }
+function firstTodo() { var a = slotList(); for (var i = 0; i < a.length; i++) { var r = CK.rec[a[i]]; if (!r || !r.f || !r.b) return a[i]; } return a[0] || ''; }
 function setSlot(loc) { CK.cur = loc; CK.last = { type: 'slotgo', loc: loc }; saveCheck(); }
-function recSide(loc, side, rec) {
+// โหมดไล่ตามช่องไม่แยกหน้า/หลัง: เช็คครั้งเดียวนับครบทั้ง 2 ด้าน
+function recSlot(loc, rec) {
   var r = CK.rec[loc] = CK.rec[loc] || {};
-  rec.at = Date.now(); rec.by = userName(); r[side] = rec; saveCheck();
+  rec.at = Date.now(); rec.by = userName(); r.f = rec; r.b = JSON.parse(JSON.stringify(rec)); saveCheck();
 }
 // สแกน / พิมพ์ ในโหมดไล่ตามช่อง → คืน class ไฟกระพริบในกล้อง
 function slotScan(text) {
@@ -663,17 +664,17 @@ function slotScan(text) {
   var l = normLoc(raw);
   if (locExists(l)) { setSlot(l); beep(true); return 'loc'; }                 // พิมพ์ Location = เปลี่ยนช่อง
   if (!CK.cur) setSlot(firstTodo());
-  var loc = CK.cur, side = ckSide(), exp = byLoc[loc], r = resolveScan(text);
+  var loc = CK.cur, exp = byLoc[loc], r = resolveScan(text);
   if (!r) { CK.last = { type: 'unk', text: text }; saveCheck(); beep(false); return 'err'; }
   if (exp && r.parts.indexOf(exp) >= 0) {
-    recSide(loc, side, { st: 'ok', text: text.slice(0, 120), found: '' });
+    recSlot(loc, { st: 'ok', text: text.slice(0, 120), found: '' });
     var nx = CK.auto !== false ? slotStep(loc, 1) : loc;
     CK.last = { type: 'slotok', loc: loc, next: nx !== loc ? nx : '' };
     if (CK.auto !== false && nx !== loc) CK.cur = nx;
     saveCheck(); beep(true); return 'ok';
   }
   var got = r.parts[0];
-  recSide(loc, side, { st: 'ng', text: text.slice(0, 120), found: '', gotCode: got.code });
+  recSlot(loc, { st: 'ng', text: text.slice(0, 120), found: '', gotCode: got.code });
   CK.last = { type: 'slotng', loc: loc, got: r.parts.map(function (p) { return p.i; }) };
   saveCheck(); beep(false); return 'err';
 }
@@ -681,8 +682,8 @@ function slotScan(text) {
 function slotCompareHtml(loc, exp, r) {
   var should = '<div class="cmp-row"><div class="cmp-k">ควรมี<br><span class="muted">(ตาม Location)</span></div><div class="cmp-v">' +
     (exp ? '<b>' + esc(exp.code) + '</b> · ' + esc(exp.name) + (exp.spec ? ' <span class="muted">(' + esc(exp.spec) + ')</span>' : '') : '<b>ไม่มี Part ในระบบ</b>') + '</div></div>';
-  var sides = SIDES.map(function (sd) {
-    var x = r[sd[0]], got = x && x.gotCode && byCode[x.gotCode] ? byCode[x.gotCode][0] : null, v, cls;
+  var sides = [[r.f || r.b]].map(function (sd) {
+    var x = sd[0], got = x && x.gotCode && byCode[x.gotCode] ? byCode[x.gotCode][0] : null, v, cls;
     if (!x) { cls = 'todo'; v = '<span class="muted">ยังไม่เช็ค — สแกนป้าย Part ในช่อง</span>'; }
     else if (x.st === 'ok') { cls = 'ok'; v = '<b>✅ ตรง</b> · เจอ ' + esc(exp ? exp.code : '') + (x.text ? '' : ' <span class="muted">(ยืนยันด้วยตา)</span>'); }
     else if (x.st === 'empty') { cls = 'empty'; v = '<b>⬜ ช่องว่าง</b> · ไม่เจอของ'; }
@@ -692,18 +693,15 @@ function slotCompareHtml(loc, exp, r) {
         '<div class="small">→ Part นี้ควรอยู่ที่ <b>' + esc(got.loc || 'รอจัดพื้นที่') + '</b></div>' : '') +
         (got ? '<button class="btn sm cmp-fix" data-ckact="slotfix" data-code="' + esc(got.code) + '">✏️ แก้ข้อมูล: ให้ช่องนี้เป็น ' + esc(got.code) + '</button>' : '');
     }
-    return '<div class="cmp-row ' + cls + '"><div class="cmp-k">เจอจริง<br><span class="muted">' + sd[1] + '</span></div><div class="cmp-v">' + v + '</div></div>';
+    return '<div class="cmp-row ' + cls + '"><div class="cmp-k">เจอจริง<br><span class="muted">(ในช่อง)</span></div><div class="cmp-v">' + v + '</div></div>';
   }).join('');
   return '<div class="cmp">' + should + sides + '</div>';
 }
 function slotHtml(inCam) {
   if (!CK.cur) CK.cur = firstTodo();
-  var loc = CK.cur, exp = byLoc[loc], r = CK.rec[loc] || {}, side = ckSide();
-  var sideBtns = '<div class="seg ck-sideseg">' + SIDES.map(function (sd) {
-    return '<button data-ckact="side" data-side="' + sd[0] + '" class="' + (side === sd[0] ? 'active' : '') + '">' + sd[1] + '</button>';
-  }).join('') + '</div>';
+  var loc = CK.cur, exp = byLoc[loc], r = CK.rec[loc] || {};
   var card = '<div class="ck-pend slot ' + (exp ? lnCls(exp) : '') + '">' +
-    '<div class="lbl">ช่องที่กำลังเช็ค · <b>' + (side === 'f' ? 'ด้านหน้า' : 'ด้านหลัง') + '</b></div>' +
+    '<div class="lbl">ช่องที่กำลังเช็ค</div>' +
     '<div class="big">' + esc(loc) + '</div>' +
     slotCompareHtml(loc, exp, r) +
     '<div class="ck-btns2"><button class="btn" data-ckact="slotprev">◀ ก่อนหน้า</button>' +
@@ -713,14 +711,14 @@ function slotHtml(inCam) {
       '<div class="small center muted">หรือพิมพ์รหัส Part ในช่องด้านบน (มีรายการแนะนำ)</div>') +
     '</div>';
   var L = CK.last, res = '';
-  if (L && L.type === 'slotok') res = '<div class="ck-res ok"><div class="h">✅ ตรง Location</div>' + esc(L.loc) + ' · ' + (side === 'f' ? 'ด้านหน้า' : 'ด้านหลัง') + (L.next ? '<div class="small">→ ไปช่อง ' + esc(L.next) + ' แล้ว สแกนต่อได้เลย</div>' : '') + '</div>';
+  if (L && L.type === 'slotok') res = '<div class="ck-res ok"><div class="h">✅ ตรง Location</div>' + esc(L.loc) + (L.next ? '<div class="small">→ ไปช่อง ' + esc(L.next) + ' แล้ว สแกนต่อได้เลย</div>' : '') + '</div>';
   else if (L && L.type === 'slotng') res = '<div class="ck-res err"><div class="h">❌ ไม่ตรง Location</div>' +
     L.got.map(function (i) { var p = PARTS[i]; return 'เจอ <b>' + esc(p.code) + '</b> · ' + esc(p.name) + '<br>→ ควรอยู่ที่ <b>' + esc(p.loc || 'รอจัดพื้นที่') + '</b>'; }).join('<hr>') +
     '<div class="exp">ช่อง ' + esc(L.loc) + ' ควรมี: ' + (byLoc[L.loc] ? '<b>' + esc(byLoc[L.loc].code) + '</b> · ' + esc(byLoc[L.loc].name) : 'ไม่มี Part') + '</div></div>';
   else if (L && L.type === 'unk') res = '<div class="ck-res err"><div class="h">❓ ไม่พบ Part นี้ในรายการ</div>สแกนได้: <b>' + esc(L.text) + '</b></div>' + newPartBtn(L.text);
   else if (L && L.type === 'slotempty') res = '<div class="ck-res warn"><div class="h">⬜ บันทึก: ช่องว่าง</div>' + esc(L.loc) + '</div>';
   else res = '<div class="small muted center" style="margin:-4px 0 10px">📍 สแกนป้าย Part ที่อยู่ในช่องนี้ — ตรงแล้วไปช่องถัดไปเอง</div>';
-  return (inCam ? '' : sideBtns) + card + res +
+  return card + res +
     (inCam ? '' : '<label class="small muted ck-auto"><input type="checkbox" id="ckAuto"' + (CK.auto !== false ? ' checked' : '') + '> ตรงแล้วไปช่องถัดไปอัตโนมัติ</label>');
 }
 function ckCamStatus() { return (ckMode() === 'slot' ? slotHtml(true) : ckPendHtml()) + ckSummaryHtml(); }
@@ -736,10 +734,10 @@ document.addEventListener('click', function (e) {
   else if (act === 'slotfix') { if ($('camStatus')) closeModal(); openSettings({ loc: CK.cur, code: b.getAttribute('data-code') }); return; }
   else if (act === 'slotprev') setSlot(slotStep(CK.cur, -1));
   else if (act === 'slotnext') setSlot(slotStep(CK.cur, 1));
-  else if (act === 'slotempty') { recSide(CK.cur, ckSide(), { st: 'empty', text: '', found: '' }); CK.last = { type: 'slotempty', loc: CK.cur }; saveCheck(); }
+  else if (act === 'slotempty') { recSlot(CK.cur, { st: 'empty', text: '', found: '' }); CK.last = { type: 'slotempty', loc: CK.cur }; saveCheck(); }
   else if (act === 'slotcam') { if ($('ckCam')) $('ckCam').click(); return; }
   else if (act === 'slotok') {
-    var cl = CK.cur; recSide(cl, ckSide(), { st: 'ok', text: '', found: '' }); beep(true);
+    var cl = CK.cur; recSlot(cl, { st: 'ok', text: '', found: '' }); beep(true);
     var nx = CK.auto !== false ? slotStep(cl, 1) : cl;
     CK.last = { type: 'slotok', loc: cl, next: nx !== cl ? nx : '' }; if (nx !== cl) CK.cur = nx; saveCheck();
   }
@@ -787,7 +785,7 @@ function renderCheck() {
     '<div class="ck-prog"><div class="ck-bar"><i class="ok" style="width:' + (st.ok * 100 / N) + '%"></i>' +
       '<i class="ng" style="width:' + (st.ng * 100 / N) + '%"></i><i class="empty" style="width:' + (st.empty * 100 / N) + '%"></i>' +
       '<i class="half" style="width:' + (st.half * 100 / N) + '%"></i></div>' +
-      '<div class="ck-nums"><span>ครบ 2 ด้าน <b>' + st.done + '</b>/' + ALL_LOCS.length + ' (' + pct + '%)</span>' +
+      '<div class="ck-nums"><span>' + (ckMode() === 'slot' ? 'เช็คแล้ว' : 'ครบ 2 ด้าน') + ' <b>' + st.done + '</b>/' + ALL_LOCS.length + ' (' + pct + '%)</span>' +
       '<span>✅ ' + st.ok + '</span><span>❌ ' + st.ng + '</span><span>⬜ ' + st.empty + '</span><span>½ ' + st.half + '</span></div></div>' +
     '<div class="seg ck-modeseg"><button data-ckmode="part" class="' + (ckMode() === 'part' ? 'active' : '') + '">📦 สแกน Part → ดูช่อง</button>' +
       '<button data-ckmode="slot" class="' + (ckMode() === 'slot' ? 'active' : '') + '">📍 ไล่ตามช่อง</button></div>' +
