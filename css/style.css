@@ -302,3 +302,10 @@ a.btn { text-decoration: none; color: inherit; display: block; }
 /* แท็บ Kingdee: ฝังเมนูจากแอป PDA */
 .kd-embed-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; margin-bottom: 8px; }
 .kd-frame { display: block; width: 100%; height: calc(100vh - 175px); height: calc(100dvh - 175px); border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+/* โหมดไล่ตามช่อง */
+.ck-modeseg { margin-bottom: 10px; }
+.ck-modeseg button { font-size: 14px; }
+.ck-sideseg { margin-bottom: 10px; }
+.ck-pend.slot .pp { text-align: center; }
+.ck-auto { display: flex; align-items: center; gap: 6px; margin: -2px 2px 10px; }
+.ck-pend.slot .ck-btns2 .ck-empty { flex: 0 0 84px; }
