@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0136'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0138'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -1029,11 +1029,15 @@ function renderSettings() {
 }
 
 // บันทึก: มี Google Sheet → ส่งเซิร์ฟเวอร์ (ตรวจรหัส + เก็บประวัติ) แล้วใช้ข้อมูลที่ตอบกลับ · ไม่มี → เก็บในเครื่อง
-// ไม่มีเน็ต → เก็บในคิว (ใช้ผลในเครื่องทันที) แล้วส่งให้เองเมื่อกลับมามีเน็ต · คืนค่า { queued: true }
+// ออนไลน์ก่อน: ส่งขึ้น Google Sheet ทันที · ส่งไม่ได้เพราะไม่มีเน็ต → เก็บในคิว (ใช้ผลในเครื่องทันที) แล้วส่งให้เองเมื่อกลับมามีเน็ต · คืนค่า { queued: true }
+function sendAfterQueue(op) {
+  queueOp(op);
+  return flushPending().then(function () { return pendingCount() ? { queued: true } : {}; }, function () { return { queued: true }; });
+}
 function saveChanges(changes, by, note) {
   var op = { type: 'save', changes: changes, by: by, note: note || '', at: nowLocal(), pin: adminPin() };
   if (!apiUrl()) { applyOpLocal(op); ASSIGN.local = true; saveAssign(); applyAssignments(); return Promise.resolve({}); }
-  if (navigator.onLine === false || pendingCount()) { queueOp(op); flushPending().catch(function () {}); return Promise.resolve({ queued: true }); }
+  if (pendingCount()) return sendAfterQueue(op); // มีรายการค้าง → ส่งตามลำดับ
   return api('saveAssignments', op.pin, by, changes, op.note).then(setAssignRows, function (e) {
     if (!e.network) throw e;
     queueOp(op); return { queued: true };
@@ -1043,7 +1047,7 @@ function revertChange(loc, by) {
   var r = ASSIGN.rows[loc] || {}, x = PARTS.filter(function (p) { return p.loc0 === loc; })[0];
   var op = { type: 'revert', loc: loc, by: by, oldCode: r.code || '', newCode: x ? x.code : '', at: nowLocal(), pin: adminPin() };
   if (!apiUrl()) { applyOpLocal(op); saveAssign(); applyAssignments(); return Promise.resolve({}); }
-  if (navigator.onLine === false || pendingCount()) { queueOp(op); flushPending().catch(function () {}); return Promise.resolve({ queued: true }); }
+  if (pendingCount()) return sendAfterQueue(op); // มีรายการค้าง → ส่งตามลำดับ
   return api('revertAssignment', op.pin, by, loc, op.oldCode, op.newCode).then(setAssignRows, function (e) {
     if (!e.network) throw e;
     queueOp(op); return { queued: true };
