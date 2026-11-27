@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-0423'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0432'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -860,7 +860,14 @@ function loadBom() {
   if (window.BOM) return Promise.resolve(window.BOM);
   return loadScriptOnce(BOM_URL).then(function () { return window.BOM || {}; }, function () { return {}; });
 }
-function bomOf(code) { var b = window.BOM && window.BOM[String(code || '').toUpperCase()]; return b ? { name: b[0] || '', spec: b[1] || '' } : null; }
+function bomOf(code) {
+  code = String(code || '').trim().toUpperCase();
+  var b = window.BOM && window.BOM[code];
+  if (b && (b[0] || b[1])) return { name: b[0] || '', spec: b[1] || '', src: 'BOM (PDA Location Scan)' };
+  var k = KD_NAMES && KD_NAMES[code];
+  if (k && (k[0] || k[1])) return { name: k[0] || '', spec: k[1] || '', src: 'Kingdee' };
+  return null;
+}
 // ป้าย Warehouse (แบบเดียวกับ pda-location-scan): รหัส*Lot*จำนวน*Package เช่น 1005QT00586*20260904001*5000*00002
 function parseWarehouseQr(text) {
   var t = String(text || '').replace(/[\r\n\t]+/g, '').trim(), parts = t.split('*');
@@ -879,7 +886,7 @@ function guessCode(text) {
 }
 function newPartBtn(text) {
   var g = guessCode(text), n = newPartOf(g), bm = bomOf(g);
-  var bomTxt = bm ? '<div class="msg idle small">📦 <b>' + esc(g) + '</b> · ' + esc(bm.name) + (bm.spec ? ' (' + esc(bm.spec) + ')' : '') + '<br>มีใน BOM แต่ยังไม่มี Location ในชั้นวางนี้</div>' : '';
+  var bomTxt = bm ? '<div class="msg idle small">📦 <b>' + esc(g) + '</b> · ' + esc(bm.name) + (bm.spec ? ' (' + esc(bm.spec) + ')' : '') + '<br>มีใน ' + esc(bm.src === 'Kingdee' ? 'Kingdee' : 'BOM') + ' แต่ยังไม่มี Location ในชั้นวางนี้</div>' : '';
   if (n) return bomTxt + '<div class="msg warn small">🆕 รหัส <b>' + esc(g) + '</b> แจ้งเป็น Part ใหม่ไว้แล้ว โดย ' + esc(n.by) + (n.pending ? ' (รอส่ง)' : '') + '</div>';
   return bomTxt + '<button class="btn newp-btn" data-newp="' + esc(text) + '">➕ แจ้ง Part ใหม่ (ไม่มีในระบบ)</button>';
 }
@@ -909,15 +916,16 @@ function openNewPartForm(raw) {
     if (b) {
       if (!$('npName').value || $('npName').value === autoName) $('npName').value = autoName = b.name;
       if (!$('npSpec').value || $('npSpec').value === autoSpec) $('npSpec').value = autoSpec = b.spec;
-      box.innerHTML = '<span style="color:var(--green)">✅ ดึงชื่อและ Spec จาก BOM (PDA Location Scan) แล้ว</span>';
+      box.innerHTML = '<span style="color:var(--green)">✅ ดึงชื่อและ Spec จาก ' + esc(b.src) + ' แล้ว</span>';
     } else {
       if ($('npName').value === autoName) $('npName').value = autoName = '';
       if ($('npSpec').value === autoSpec) $('npSpec').value = autoSpec = '';
-      box.innerHTML = window.BOM ? '<span class="muted">ไม่พบรหัสนี้ใน BOM — กรอกชื่อเอง</span>' : '<span class="muted">กำลังโหลด BOM…</span>';
+      box.innerHTML = window.BOM && KD_NAMES ? '<span class="muted">ไม่พบรหัสนี้ใน BOM และ Kingdee — กรอกชื่อเอง</span>' : '<span class="muted">กำลังค้นใน BOM / Kingdee…</span>';
     }
   }
-  fillBom();
-  loadBom().then(function () { if ($('npCode')) { fillBom(); if (!$('npName').value) $('npName').focus(); } });
+  fillBom(); npFillHook = fillBom;
+  // ค้น BOM ของแอป PDA และรายชื่อจาก Kingdee (โหลดถ้ายังไม่มีในเครื่อง)
+  Promise.all([loadBom(), KD_NAMES ? null : loadKd(false)]).then(function () { if ($('npCode')) { fillBom(); if (!$('npName').value) $('npName').focus(); } });
   $('npCode').oninput = fillBom;
   setTimeout(function () { if ($('npName') && !$('npName').value) $('npName').focus(); }, 50);
   $('npCancel').onclick = closeModal;
@@ -1240,6 +1248,8 @@ var KD = (function () {
   try { var d = JSON.parse(localStorage.getItem('h9pl_kd') || 'null'); if (d && d.rows) return d; } catch (e) { /* ไม่มี/เสีย */ }
   return { rows: {}, snap: '', lastMod: '' };
 })();
+// ชื่อ / Spec ของทุกรหัสที่มีใน Kingdee (~1,500 รหัส) — ใช้เติมฟอร์มแจ้ง Part ใหม่เมื่อไม่พบใน BOM
+var KD_NAMES = (function () { try { return JSON.parse(localStorage.getItem('h9pl_kdnames') || 'null'); } catch (e) { return null; } })();
 KD.loading = false; KD.err = ''; KD.checkedAt = 0; KD.checking = false;
 // แถว: [lot, qty, unit, warehouse, storage, status]
 function kdSave() { store('h9pl_kd', JSON.stringify({ rows: KD.rows, snap: KD.snap, lastMod: KD.lastMod })); }
@@ -1271,13 +1281,16 @@ function loadKd(force) {
     var lm = r.headers.get('Last-Modified'); if (lm) KD.lastMod = lm;
     return r.text();
   }).then(function (t) {
-    var d = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)), rows = {};
+    var d = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)), rows = {}, names = {};
     (d.inventory || []).forEach(function (r) {
-      var code = String(r.partCode || r.materialCode || '').trim().toUpperCase(); if (!byCode[code]) return;
+      var code = String(r.partCode || r.materialCode || '').trim().toUpperCase();
+      if (code && !names[code]) names[code] = [String(r.partName || r.materialName || ''), String(r.specification || '')];
+      if (!byCode[code]) return;
       var q = Number(r.onHandQty != null ? r.onHandQty : r.onHand); if (!q) return;
       (rows[code] = rows[code] || []).push([String(r.lotNumber || '').trim(), q, String(r.unit || ''), String(r.warehouse || ''), String(r.storage || '').trim(), String(r.status || '')]);
     });
     KD.rows = rows; KD.snap = d.snapshotAt || ''; KD.loading = false; KD.checkedAt = Date.now();
+    KD_NAMES = names; store('h9pl_kdnames', JSON.stringify(names));
     kdSave(); kdRefresh();
   }).catch(function (e) {
     KD.loading = false; KD.err = 'ดึงยอด Kingdee ไม่ได้: ' + (e.message || e); kdRefresh();
@@ -1294,7 +1307,9 @@ function kdCheck() {
     if (tNew && (!tOld || tNew - tOld > 5000)) loadKd(true);
   }, function () { KD.checking = false; KD.checkedAt = Date.now(); });
 }
+var npFillHook = null; // ฟอร์มแจ้ง Part ใหม่ที่เปิดอยู่ → เติมชื่อใหม่เมื่อยอด Kingdee โหลดเสร็จ
 function kdRefresh() {
+  if (npFillHook && $('npCode')) npFillHook();
   if ($('kdBox')) $('kdBox').innerHTML = kdDetailInner(S.kdDetail);
 }
 
