@@ -1,6 +1,7 @@
 # ตั้งเลขเวอร์ชันใหม่ก่อน push ทุกครั้งที่แก้หน้าเว็บ:  python tools/bump-version.py
 # - version.json        → เครื่องที่เปิดเว็บค้างไว้จะเห็นว่ามีเวอร์ชันใหม่ แล้วโหลดใหม่เอง
 # - js/app.js APP_VERSION
+# - sw.js VERSION      → Service Worker เก็บไฟล์ชุดใหม่ไว้ใช้ตอนออฟไลน์ (ลบชุดเก่า)
 # - index.html ?v=...   → บังคับให้เบราว์เซอร์โหลดไฟล์ js/css ใหม่ (ไม่ใช้ cache เก่า)
 import datetime, json, os, re
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -13,6 +14,7 @@ def edit(rel, fn):
 
 edit('index.html', lambda s: re.sub(r'\.(js|css)(\?v=[\w-]+)?"', lambda m: '.' + m.group(1) + '?v=' + v + '"', s))
 edit('js/app.js', lambda s: re.sub(r"var APP_VERSION = '[^']*';", "var APP_VERSION = '" + v + "';", s))
+edit('sw.js', lambda s: re.sub(r"var VERSION = '[^']*';", "var VERSION = '" + v + "';", s))
 with open(os.path.join(ROOT, 'version.json'), 'w', encoding='utf-8') as f:
     json.dump({'version': v}, f)
     f.write('\n')

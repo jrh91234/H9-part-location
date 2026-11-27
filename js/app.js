@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261126-1205'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261127-0136'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -234,6 +234,7 @@ function render() {
   if (!validName(userName())) { renderNameGate(); return; }
   $('app').innerHTML =
     '<div class="top"><div class="brand">📍 H9 Part Location <span class="ver">v' + esc(APP_VERSION) + '</span></div>' +
+      '<span class="chip net hidden" id="netChip"></span>' +
       '<button class="chip user" id="appUser" aria-label="ผู้ใช้งาน">👤 ' + esc(userName()) + '</button>' +
       '<button class="chip" id="appQr" aria-label="QR ลิงก์เข้าหน้าเว็บ">🔗</button>' +
       '<button class="chip' + (S.tab === 'settings' ? ' on' : '') + '" id="appSet" aria-label="ตั้งค่า">⚙</button></div>' +
@@ -250,6 +251,7 @@ function render() {
   };
   $('appSet').onclick = function () { openSettings(); };
   $('appUser').onclick = openUserMenu;
+  updateNet();
   if (S.tab === 'search') renderSearch(); else if (S.tab === 'check') renderCheck(); else if (S.tab === 'settings') renderSettings(); else renderMap();
 }
 function setTab(t) { S.tab = t; render(); window.scrollTo(0, 0); }
@@ -727,7 +729,7 @@ function api(action) {
     return res.text().then(function (t) {
       try { return JSON.parse(t); } catch (e) { throw new Error('เซิร์ฟเวอร์ตอบกลับผิดรูปแบบ (HTTP ' + res.status + ')'); }
     });
-  }, function () { throw new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ตรวจสอบอินเทอร์เน็ต'); }).then(function (r) {
+  }, function () { var e = new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ตรวจสอบอินเทอร์เน็ต'); e.network = true; throw e; }).then(function (r) {
     if (timer) clearTimeout(timer);
     if (!r.ok) throw new Error(/auth|permission|权限/i.test(r.error || '') ? 'ระบบยังไม่ได้รับอนุญาต — ผู้ดูแลต้องเปิด Google Sheet → เมนู H9 Location → ตั้งค่าเริ่มต้น' : (r.error || 'เกิดข้อผิดพลาด'));
     return r.data;
@@ -738,8 +740,56 @@ function rowsToMap(rows) {
 }
 function saveAssign() { store('h9pl_assign', JSON.stringify(ASSIGN)); }
 function setAssignRows(rows) {
-  ASSIGN = { rows: rowsToMap(rows), syncedAt: Date.now(), local: false };
+  var pending = ASSIGN.pending || [];
+  ASSIGN = { rows: rowsToMap(rows), syncedAt: Date.now(), local: false, pending: pending };
+  pending.forEach(applyOpLocal);
   saveAssign(); applyAssignments();
+}
+// ---------- ออฟไลน์: การเปลี่ยนที่ยังส่งไม่ได้ เก็บเป็นคิวในเครื่อง แล้วส่งเมื่อกลับมามีเน็ต ----------
+function nowLocal() { var d = new Date(), z = function (n) { return ('0' + n).slice(-2); }; return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + 'T' + z(d.getHours()) + ':' + z(d.getMinutes()) + ':' + z(d.getSeconds()); }
+function applyOpLocal(op) {
+  if (op.type === 'revert') { delete ASSIGN.rows[op.loc]; return; }
+  op.changes.forEach(function (c) { ASSIGN.rows[c.loc] = { code: c.code, by: op.by, at: op.at, note: op.note || '', pending: true }; });
+}
+function queueOp(op) {
+  ASSIGN.pending = ASSIGN.pending || [];
+  ASSIGN.pending.push(op); applyOpLocal(op);
+  saveAssign(); applyAssignments(); updateNet();
+}
+function pendingCount() { return (ASSIGN.pending || []).length; }
+var flushing = null;
+function flushPending() {
+  if (flushing) return flushing;
+  if (!pendingCount() || !apiUrl()) return Promise.resolve(0);
+  var sent = 0;
+  function next() {
+    var op = (ASSIGN.pending || [])[0];
+    if (!op) return Promise.resolve(sent);
+    var call = op.type === 'revert'
+      ? api('revertAssignment', op.pin, op.by, op.loc, op.oldCode, op.newCode)
+      : api('saveAssignments', op.pin, op.by, op.changes, op.note || '');
+    return call.then(function (rows) {
+      ASSIGN.pending.shift(); sent++; setAssignRows(rows); return next();
+    }, function (e) {
+      if (e.network) throw e;                       // ยังไม่มีเน็ต → เก็บไว้ส่งรอบหน้า
+      ASSIGN.pending.shift(); saveAssign();         // เซิร์ฟเวอร์ปฏิเสธ (เช่น รหัสผิด) → ทิ้งรายการนั้น
+      toast('ส่งรายการที่รอไม่สำเร็จ: ' + e.message, 4000);
+      return next();
+    });
+  }
+  flushing = next().then(function (n) {
+    flushing = null; updateNet();
+    if (n) { toast('ส่งการเปลี่ยนที่รออยู่ขึ้น Google Sheet แล้ว ' + n + ' รายการ', 3000); if ($('modal').classList.contains('hidden')) render(); }
+    return n;
+  }, function (e) { flushing = null; updateNet(); throw e; });
+  return flushing;
+}
+// แถบสถานะเน็ตบนหัวแอป: 📴 ออฟไลน์ · ⏳ รอส่ง n
+function updateNet() {
+  var el = $('netChip'); if (!el) return;
+  var off = navigator.onLine === false, n = pendingCount();
+  el.textContent = off ? '📴 ออฟไลน์' + (n ? ' · รอส่ง ' + n : '') : n ? '⏳ รอส่ง ' + n : '';
+  el.classList.toggle('hidden', !off && !n);
 }
 // ดึงการเปลี่ยนล่าสุดจาก Google Sheet (ตอนเปิดแอป / กลับมาที่หน้าเว็บ) → รวมข้อมูลใหม่แล้ววาดหน้าจอใหม่
 var syncing = null, syncErr = '';
@@ -747,7 +797,7 @@ function syncAssignments(force) {
   if (!apiUrl()) return Promise.resolve(false);
   if (syncing) return syncing;
   if (!force && Date.now() - (ASSIGN.syncedAt || 0) < 60000) return Promise.resolve(false);
-  syncing = api('getAssignments').then(function (rows) {
+  syncing = flushPending().catch(function () { /* ยังส่งไม่ได้ → ดึงข้อมูลต่อ */ }).then(function () { return api('getAssignments'); }).then(function (rows) {
     var before = JSON.stringify(ASSIGN.rows);
     setAssignRows(rows);
     var changed = before !== JSON.stringify(ASSIGN.rows);
@@ -763,6 +813,7 @@ function syncAssignments(force) {
 
 // ======================= ⚙ ตั้งค่า (ต้องใส่รหัส) =======================
 var LOCAL_PIN = '1234'; // ใช้เฉพาะตอนยังไม่ได้ต่อ Google Sheet — ถ้าต่อแล้ว เซิร์ฟเวอร์เป็นคนตรวจ (Script Properties → ADMIN_PIN)
+function pinHash(v) { var h = 5381; v = 'h9pl:' + v; for (var i = 0; i < v.length; i++) h = ((h << 5) + h + v.charCodeAt(i)) | 0; return String(h >>> 0); }
 function adminPin() { try { return sessionStorage.getItem('h9pl_pin') || ''; } catch (e) { return ''; } }
 function setAdminPin(v) { try { if (v) sessionStorage.setItem('h9pl_pin', v); else sessionStorage.removeItem('h9pl_pin'); } catch (e) { /* โหมดส่วนตัว */ } }
 function openSettings(prefill) {
@@ -781,11 +832,20 @@ function openSettings(prefill) {
   function check() {
     var v = inp.value.trim(); if (!v) return;
     $('pinOk').disabled = true; $('pinMsg').textContent = '';
-    var p = apiUrl() ? api('checkPin', v) : Promise.resolve(v === LOCAL_PIN);
+    var p = apiUrl() ? api('checkPin', v).then(function (ok) {
+      if (ok) store('h9pl_pinok', pinHash(v));
+      return ok;
+    }, function (e) {
+      if (e.network && store('h9pl_pinok')) return pinHash(v) === store('h9pl_pinok'); // ออฟไลน์ → เทียบกับรหัสที่เคยผ่าน
+      if (e.network) throw new Error('ไม่มีเน็ต — ต้องเข้าเมนูตั้งค่าตอนมีเน็ตอย่างน้อย 1 ครั้งก่อน');
+      throw e;
+    }) : Promise.resolve(v === LOCAL_PIN);
+    function msg(t) { if ($('pinMsg')) $('pinMsg').textContent = t; if ($('pinOk')) $('pinOk').disabled = false; }
     p.then(function (ok) {
-      if (!ok) { $('pinMsg').textContent = 'รหัสไม่ถูกต้อง'; $('pinOk').disabled = false; inp.select(); beep(false); return; }
+      if (!$('pinIn')) return; // ปิดหน้าต่างไปแล้ว
+      if (!ok) { msg('รหัสไม่ถูกต้อง'); inp.select(); beep(false); return; }
       setAdminPin(v); closeModal(); go();
-    }, function (e) { $('pinMsg').textContent = e.message; $('pinOk').disabled = false; });
+    }, function (e) { msg(e.message); });
   }
   $('pinOk').onclick = check;
   inp.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); check(); } };
@@ -859,14 +919,15 @@ function renderSettings() {
       var r = ASSIGN.rows[l], x = PARTS.filter(function (p) { return p.loc0 === l; })[0];
       return '<div class="chg-row"><div class="l">' + esc(l.replace(/^H9-/, '')) + '</div><div class="m">' +
         '<div><span class="muted">Excel:</span> ' + esc(x ? x.code : 'ว่าง') + ' → <b>' + esc(r.code || 'ว่าง') + '</b></div>' +
-        '<div class="small muted">' + esc(r.by || '') + (r.at ? ' · ' + esc(String(r.at).replace('T', ' ').slice(0, 16)) : '') + (r.note ? ' · ' + esc(r.note) : '') + '</div></div>' +
+        '<div class="small muted">' + (r.pending ? '<b style="color:var(--amber)">⏳ รอส่ง</b> · ' : '') + esc(r.by || '') + (r.at ? ' · ' + esc(String(r.at).replace('T', ' ').slice(0, 16)) : '') + (r.note ? ' · ' + esc(r.note) : '') + '</div></div>' +
         '<button class="btn sm" data-revert="' + esc(l) + '">↩ คืนค่า</button></div>';
     }).join('') : '<div class="small muted">ยังไม่มี — ทุกช่องตรงตามไฟล์ Excel</div>') + '</div>';
 
   $('main').innerHTML =
     '<div class="set-head"><button class="btn sm" id="setBack">← กลับ</button><b>⚙ ตั้งค่า</b><button class="btn sm" id="setLock">🔒 ออก</button></div>' +
     '<div class="set-card"><div class="set-status ' + (api_ ? 'on' : 'off') + '">' +
-      (api_ ? '🟢 เชื่อม Google Sheet แล้ว — ทุกเครื่องเห็นการเปลี่ยน' : '🟠 ยังไม่ได้ต่อ Google Sheet — การเปลี่ยนเก็บในเครื่องนี้เท่านั้น') + '</div>' +
+      (api_ ? (navigator.onLine === false ? '📴 ออฟไลน์ — บันทึกได้ จะส่งขึ้น Google Sheet ให้เองเมื่อมีเน็ต' : '🟢 เชื่อม Google Sheet แล้ว — ทุกเครื่องเห็นการเปลี่ยน') : '🟠 ยังไม่ได้ต่อ Google Sheet — การเปลี่ยนเก็บในเครื่องนี้เท่านั้น') + '</div>' +
+      (pendingCount() ? '<div class="msg warn small">⏳ รอส่งขึ้น Google Sheet ' + pendingCount() + ' รายการ <button class="btn sm" id="setFlush">ส่งตอนนี้</button></div>' : '') +
       (api_ ? '<div class="small muted">ซิงค์ล่าสุด: ' + (ASSIGN.syncedAt ? fmtTime(ASSIGN.syncedAt) : '-') + ' <button class="btn sm" id="setSync">🔄 ซิงค์</button></div>' +
         (syncErr ? '<div class="msg err small">ดึงข้อมูลจาก Google Sheet ไม่สำเร็จ: ' + esc(syncErr) + '</div>' : '') : '') +
       '<div class="small">ผู้แก้ไข: <b>👤 ' + esc(editorBy()) + '</b> <span class="muted">(เปลี่ยนได้ที่ชื่อมุมขวาบน)</span></div></div>' +
@@ -880,6 +941,10 @@ function renderSettings() {
   // ----- ผูกปุ่ม -----
   $('setBack').onclick = function () { setTab('search'); };
   $('setLock').onclick = function () { setAdminPin(''); setTab('search'); toast('ออกจากเมนูตั้งค่าแล้ว'); };
+  if ($('setFlush')) $('setFlush').onclick = function () {
+    this.disabled = true;
+    flushPending().then(function () { renderSettings(); }, function (e) { toast(e.message, 3500); renderSettings(); });
+  };
   if ($('setSync')) $('setSync').onclick = function () {
     this.disabled = true;
     syncAssignments(true).then(function () { toast('ซิงค์แล้ว'); renderSettings(); }, function (e) { toast(e.message, 3500); renderSettings(); });
@@ -931,8 +996,8 @@ function renderSettings() {
     var by = editorBy();
     var changes = plannedChanges(); if (!changes || !changes.length) return;
     var btn = this; btn.disabled = true; btn.textContent = 'กำลังบันทึก…';
-    saveChanges(changes, by, E.note).then(function () {
-      beep(true); toast('บันทึกแล้ว: ' + changes.map(function (c) { return c.loc.replace(/^H9-/, '') + ' → ' + (c.code || 'ว่าง'); }).join(' · '), 3500);
+    saveChanges(changes, by, E.note).then(function (res) {
+      beep(true); toast((res && res.queued ? '📴 บันทึกในเครื่องแล้ว จะส่งขึ้น Google Sheet เมื่อมีเน็ต: ' : 'บันทึกแล้ว: ') + changes.map(function (c) { return c.loc.replace(/^H9-/, '') + ' → ' + (c.code || 'ว่าง'); }).join(' · '), 4000);
       E.code = ''; E.q = ''; E.note = ''; renderSettings();
     }, function (e) { beep(false); toast(e.message, 4000); btn.disabled = false; btn.textContent = '💾 บันทึก'; });
   };
@@ -941,7 +1006,7 @@ function renderSettings() {
       var l = b.getAttribute('data-revert'), by = editorBy();
       if (!confirm('คืนค่าช่อง ' + l + ' กลับไปตามไฟล์ Excel?')) return;
       b.disabled = true;
-      revertChange(l, by).then(function () { toast('คืนค่า ' + l + ' แล้ว'); renderSettings(); }, function (e) { toast(e.message, 4000); b.disabled = false; });
+      revertChange(l, by).then(function (res) { toast('คืนค่า ' + l + (res && res.queued ? ' (รอส่งเมื่อมีเน็ต)' : ' แล้ว')); renderSettings(); }, function (e) { toast(e.message, 4000); b.disabled = false; });
     };
   });
   if ($('logLoad')) $('logLoad').onclick = function () {
@@ -964,18 +1029,25 @@ function renderSettings() {
 }
 
 // บันทึก: มี Google Sheet → ส่งเซิร์ฟเวอร์ (ตรวจรหัส + เก็บประวัติ) แล้วใช้ข้อมูลที่ตอบกลับ · ไม่มี → เก็บในเครื่อง
+// ไม่มีเน็ต → เก็บในคิว (ใช้ผลในเครื่องทันที) แล้วส่งให้เองเมื่อกลับมามีเน็ต · คืนค่า { queued: true }
 function saveChanges(changes, by, note) {
-  if (apiUrl()) return api('saveAssignments', adminPin(), by, changes, note || '').then(setAssignRows);
-  var at = new Date().toISOString().slice(0, 19);
-  changes.forEach(function (c) { ASSIGN.rows[c.loc] = { code: c.code, by: by, at: at, note: note || '' }; });
-  ASSIGN.local = true; saveAssign(); applyAssignments();
-  return Promise.resolve();
+  var op = { type: 'save', changes: changes, by: by, note: note || '', at: nowLocal(), pin: adminPin() };
+  if (!apiUrl()) { applyOpLocal(op); ASSIGN.local = true; saveAssign(); applyAssignments(); return Promise.resolve({}); }
+  if (navigator.onLine === false || pendingCount()) { queueOp(op); flushPending().catch(function () {}); return Promise.resolve({ queued: true }); }
+  return api('saveAssignments', op.pin, by, changes, op.note).then(setAssignRows, function (e) {
+    if (!e.network) throw e;
+    queueOp(op); return { queued: true };
+  });
 }
 function revertChange(loc, by) {
   var r = ASSIGN.rows[loc] || {}, x = PARTS.filter(function (p) { return p.loc0 === loc; })[0];
-  if (apiUrl()) return api('revertAssignment', adminPin(), by, loc, r.code || '', x ? x.code : '').then(setAssignRows);
-  delete ASSIGN.rows[loc]; saveAssign(); applyAssignments();
-  return Promise.resolve();
+  var op = { type: 'revert', loc: loc, by: by, oldCode: r.code || '', newCode: x ? x.code : '', at: nowLocal(), pin: adminPin() };
+  if (!apiUrl()) { applyOpLocal(op); saveAssign(); applyAssignments(); return Promise.resolve({}); }
+  if (navigator.onLine === false || pendingCount()) { queueOp(op); flushPending().catch(function () {}); return Promise.resolve({ queued: true }); }
+  return api('revertAssignment', op.pin, by, loc, op.oldCode, op.newCode).then(setAssignRows, function (e) {
+    if (!e.network) throw e;
+    queueOp(op); return { queued: true };
+  });
 }
 
 // ======================= QR ลิงก์เข้าหน้าเว็บ =======================
@@ -1274,6 +1346,22 @@ window.addEventListener('hashchange', function () {
 });
 document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkUpdate(); syncAssignments().catch(function () {}); } });
 syncAssignments(true).catch(function () { /* ออฟไลน์ → ใช้ข้อมูลที่เก็บในเครื่อง */ });
+window.addEventListener('online', function () { updateNet(); syncAssignments(true).catch(function () {}); if (S.tab === 'settings' && $('modal').classList.contains('hidden')) renderSettings(); });
+window.addEventListener('offline', function () { updateNet(); if (S.tab === 'settings' && $('modal').classList.contains('hidden')) renderSettings(); });
+// Service Worker: เก็บไฟล์แอปไว้ในเครื่อง → เปิดแอปได้แม้ไม่มีเน็ต (ต้องเปิดผ่าน https หรือ localhost)
+if ('serviceWorker' in navigator && /^(https:|http:\/\/localhost)/.test(location.href)) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function () { /* ไม่รองรับ → ใช้แบบออนไลน์ */ });
+    // ตอนมีเน็ต: โหลดตัวอ่านบาร์โค้ด (zxing / jsQR / ตัวกู้ QR) เก็บไว้ล่วงหน้า → สแกนด้วยกล้องได้แม้ออฟไลน์
+    setTimeout(function () {
+      if (navigator.onLine === false) return;
+      getDetectors().then(function (list) {
+        var c = document.createElement('canvas'); c.width = c.height = 32;
+        list.forEach(function (e) { try { e.detect(c).catch(function () {}); } catch (x) { /* ไม่เป็นไร */ } });
+      }, function () {});
+    }, 4000);
+  });
+}
 setInterval(checkUpdate, 5 * 60 * 1000);
 checkUpdate();
 })();
