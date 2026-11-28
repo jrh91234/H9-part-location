@@ -1,7 +1,7 @@
 // H9 Part Location — ค้นหา/สแกน ว่ารหัส Part อยู่ Location ไหน (ข้อมูลจาก js/data.js)
 (function () {
 'use strict';
-var APP_VERSION = '20261127-1024'; // ตั้งโดย tools/bump-version.py
+var APP_VERSION = '20261128-1032'; // ตั้งโดย tools/bump-version.py
 
 var PARTS = window.PARTS || [], LEVELS = window.LEVELS || {};
 var LV_LIST = Object.keys(LEVELS).map(Number).sort(function (a, b) { return b - a; }); // ชั้นบนสุดก่อน (เหมือนแผนผัง)
@@ -264,10 +264,11 @@ function render() {
       '<button class="chip" id="appQr" aria-label="QR ลิงก์เข้าหน้าเว็บ">🔗</button>' +
       '<button class="chip' + (S.tab === 'settings' ? ' on' : '') + '" id="appSet" aria-label="ตั้งค่า">⚙</button></div>' +
     '<div class="tabs">' +
-      '<button data-tab="search" class="' + (S.tab === 'search' ? 'active' : '') + '">🔎 ค้นหา</button>' +
-      '<button data-tab="check" class="' + (S.tab === 'check' ? 'active' : '') + '">✅ ไล่เช็ค</button>' +
-      '<button data-tab="kd" class="' + (S.tab === 'kd' ? 'active' : '') + '">📊 Kingdee</button>' +
-      '<button data-tab="map" class="' + (S.tab === 'map' ? 'active' : '') + '">🗂 ผัง</button>' +
+      '<button data-tab="search" class="' + (S.tab === 'search' ? 'active' : '') + '"><i>🔎</i>ค้นหา</button>' +
+      '<button data-tab="pick" class="' + (S.tab === 'pick' ? 'active' : '') + '"><i>🧾</i>เบิก</button>' +
+      '<button data-tab="check" class="' + (S.tab === 'check' ? 'active' : '') + '"><i>✅</i>ไล่เช็ค</button>' +
+      '<button data-tab="kd" class="' + (S.tab === 'kd' ? 'active' : '') + '"><i>📊</i>Kingdee</button>' +
+      '<button data-tab="map" class="' + (S.tab === 'map' ? 'active' : '') + '"><i>🗂</i>ผัง</button>' +
     '</div><main id="main"></main>';
   Array.prototype.forEach.call(document.querySelectorAll('[data-tab]'), function (b) {
     b.onclick = function () { setTab(b.getAttribute('data-tab')); };
@@ -278,9 +279,12 @@ function render() {
   $('appSet').onclick = function () { openSettings(); };
   $('appUser').onclick = openUserMenu;
   updateNet();
-  if (S.tab === 'search') renderSearch(); else if (S.tab === 'check') renderCheck(); else if (S.tab === 'settings') renderSettings(); else if (S.tab === 'kd') renderKd(); else renderMap();
+  if (S.tab === 'search') renderSearch(); else if (S.tab === 'check') renderCheck(); else if (S.tab === 'settings') renderSettings(); else if (S.tab === 'kd') renderKd(); else if (S.tab === 'pick') renderPick(); else renderMap();
 }
-function setTab(t) { S.tab = t; render(); window.scrollTo(0, 0); }
+function setTab(t) {
+  S.tab = t; render(); window.scrollTo(0, 0);
+  if (t === 'pick') { loadWh().then(function () { if (S.tab === 'pick') renderPick(); }, function () { if (S.tab === 'pick') renderPick(); }); loadWhImg().catch(function () {}); }
+}
 
 function renderSearch() {
   var chips = '<button class="fchip' + (S.line === 'all' ? ' active' : '') + '" data-line="all">ทุก Line</button>' +
@@ -368,7 +372,7 @@ function cardHtml(p, toks, hit) {
     ? '<div class="card-loc"><div class="sm">H9</div><div class="big">' + hl(p.short, toks) + '</div><div class="sm">ชั้น ' + p.lv + ' · ช่อง ' + p.col + '</div></div>'
     : '<div class="card-loc none"><div class="big">รอจัด<br>พื้นที่</div></div>';
   return '<button class="card ' + lnCls(p) + (hit ? ' hit' : '') + '" data-i="' + p.i + '">' + loc +
-    '<div class="card-main"><div class="code">' + hl(p.code, toks) + '</div>' +
+    '<div class="card-main">' + imgTag(partImgId(p), 160, 'card-img') + '<div class="code">' + hl(p.code, toks) + '</div>' +
     '<div class="spec">' + hl(p.spec, toks) + '</div>' +
     '<div class="name">' + hl(p.name, toks) + '</div>' +
     '<div class="tags"><span class="tag ' + lnCls(p) + '">Line ' + esc(p.line) + '</span><span class="tag">' + esc(p.grp) + '</span>' +
@@ -395,7 +399,8 @@ function showDetail(p) {
   var hero = p.loc
     ? '<div class="loc-hero ' + lnCls(p) + '"><div class="lbl">Location</div><div class="big">' + esc(p.loc) + '</div><div class="sub">ชั้น L' + p.lv + ' · ช่องที่ ' + p.col + '</div></div>' + rackHtml(p.loc)
     : '<div class="loc-hero none"><div class="lbl">Location</div><div class="big" style="font-size:30px">รอจัดพื้นที่</div><div class="sub">ยังไม่มีช่องจัดเก็บ</div></div>';
-  openModal(hero +
+  var fid = partImgId(p);
+  openModal(hero + (fid ? '<a class="d-img" href="https://drive.google.com/file/d/' + esc(fid) + '/view" target="_blank" rel="noopener">' + imgTag(fid, 600, 'd-img-i') + '</a>' : '') +
     '<div class="kv">' +
       '<div class="k">Child Code</div><div class="v">' + esc(p.code) + '<button class="copy" data-copy="' + esc(p.code) + '">คัดลอก</button></div>' +
       '<div class="k">Specification</div><div class="v">' + esc(p.spec || '-') + (p.spec ? '<button class="copy" data-copy="' + esc(p.spec) + '">คัดลอก</button>' : '') + '</div>' +
@@ -2018,6 +2023,236 @@ function checkUpdate() {
 }
 
 // ---------- เริ่ม ----------
+// ======== 🧾 เบิกตามรุ่น: เลือกรุ่นจาก BOM ของ WHSYS (NLC Factory ERP) → บอกว่าต้องหยิบอะไร ช่องไหน เท่าไหร่ ========
+// จับคู่ "Component number" ใน BOM กับ Spec (หรือรหัส) ของ Part ใน H9 · คูณจำนวนตามลำดับชั้นของ BOM
+// ถ้าชิ้นแม่ (Sub-assembly) มีในชั้นวาง H9 อยู่แล้ว → หยิบชิ้นแม่ ไม่กระจายลูกของมัน
+var WH_API = 'https://script.google.com/macros/s/AKfycby923XbLtP0TxMmKNG1JyhmtZeMNNALNCCJLXWr1GI70NYH0h7AI27c7yP2-L3h9Ne_zQ/exec';
+function wkey(s) { return String(s == null ? '' : s).toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+function jget(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
+function jset(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
+var WHB = jget('h9pl_whbom');   // { at, models: { รุ่น: [[level, comp, desc, qty, unit], ...] } }
+var WHIMG = jget('h9pl_whimg'); // { at, img: { wkey(partNo): [fileId, ...] } }
+var PK = jget('h9pl_pick') || { model: '', qty: 1, done: {} };
+var whLoading = null, whErr = '';
+function savePick() { jset('h9pl_pick', PK); }
+// Level ในชีทมีหลายแบบ: 1, 2 · ".0" "..2" "...3" · 0.1 (".1" ที่ Excel แปลงเป็นตัวเลข)
+function bomLevel(v) {
+  if (typeof v === 'number') return v % 1 ? Math.round((v % 1) * 10) : v;
+  var m = String(v || '').match(/(\d+)\s*$/); return m ? +m[1] : NaN;
+}
+function loadWh(force) {
+  if (whLoading) return whLoading;
+  if (!force && WHB && Date.now() - WHB.at < 6 * 3600 * 1000) return Promise.resolve(WHB);
+  whLoading = fetch(WH_API + '?action=getBOM&t=' + Date.now()).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(function (j) {
+    var models = {};
+    Object.keys(j.data || {}).forEach(function (name) {
+      var rows = j.data[name] || [], h = (rows[0] || []).map(function (x) { return String(x).toLowerCase(); });
+      if (!/level/.test(h[0] || '')) return;                            // ข้ามชีทสารบัญ / ชีทที่ไม่ใช่ BOM
+      var out = [];
+      for (var i = 1; i < rows.length; i++) {
+        var r = rows[i], lv = bomLevel(r[0]), comp = String(r[2] == null ? '' : r[2]).trim();
+        if (!comp || isNaN(lv) || wkey(comp) === wkey(name)) continue;
+        out.push([lv, comp, String(r[3] == null ? '' : r[3]).trim(), parseFloat(r[4]) || 0, String(r[5] == null ? '' : r[5]).trim()]);
+      }
+      if (out.length) models[name] = out;
+    });
+    WHB = { at: Date.now(), models: models }; jset('h9pl_whbom', WHB); whErr = '';
+    return WHB;
+  }).catch(function (e) { whErr = String(e && e.message || e); throw e; }).then(function (v) { whLoading = null; return v; }, function (e) { whLoading = null; throw e; });
+  return whLoading;
+}
+function loadWhImg(force) {
+  if (!force && WHIMG && Date.now() - WHIMG.at < 6 * 3600 * 1000) return Promise.resolve(WHIMG);
+  return fetch(WH_API + '?action=getImages&t=' + Date.now()).then(function (r) { return r.json(); }).then(function (j) {
+    var img = {};
+    Object.keys(j.images || {}).forEach(function (k) {
+      var a = (j.images[k] || []).map(function (x) { return x && x.fileId; }).filter(Boolean);
+      if (a.length) img[wkey(k)] = a;
+    });
+    WHIMG = { at: Date.now(), img: img }; jset('h9pl_whimg', WHIMG); return WHIMG;
+  });
+}
+// รูป Part จาก WHSYS (เทียบด้วย Spec ก่อน แล้วค่อยรหัส)
+function partImgId(p) {
+  if (!WHIMG || !p) return '';
+  var a = WHIMG.img[wkey(p.spec)] || WHIMG.img[wkey(p.code)];
+  return a ? a[0] : '';
+}
+function imgTag(fid, size, cls) {
+  if (!fid) return '';
+  return '<img class="' + (cls || 'pimg') + '" loading="lazy" alt="" src="https://lh3.googleusercontent.com/d/' + esc(fid) + '=w' + size + '" ' +
+    'onerror="if(!this.dataset.f){this.dataset.f=1;this.src=\'https://drive.google.com/thumbnail?id=' + esc(fid) + '&sz=w' + size + '\'}else{this.style.display=\'none\'}">';
+}
+// ดัชนี Spec/รหัส → Part ใน H9 (ใช้ช่องปัจจุบันหลังรวมการเปลี่ยน)
+function h9Index() {
+  var ix = {};
+  PARTS.forEach(function (p) {
+    [p.spec, p.code].forEach(function (v) { var k = wkey(v); if (k.length >= 5) { ix[k] = ix[k] || []; if (ix[k].indexOf(p) < 0) ix[k].push(p); } });
+  });
+  return ix;
+}
+// ระเบิด BOM ของรุ่น × จำนวน → { pick: [...], wait: [...], other: [...] }
+function pickPlan(model, qty) {
+  var rows = WHB && WHB.models[model]; if (!rows) return null;
+  var ix = h9Index(), stack = [], agg = {}, order = [];
+  rows.forEach(function (r) {
+    var lv = r[0];
+    while (stack.length && stack[stack.length - 1].lv >= lv) stack.pop();
+    var mult = 1, skip = false;
+    stack.forEach(function (s) { mult *= s.q; if (s.h9) skip = true; });
+    var k = wkey(r[1]), parts = ix[k] || null, per = r[3] * mult;
+    stack.push({ lv: lv, q: r[3], h9: !!parts });
+    if (skip || !per) return;
+    if (!agg[k]) { agg[k] = { key: k, comp: r[1], desc: r[2], unit: r[4], per: 0, parts: parts }; order.push(k); }
+    agg[k].per += per;
+  });
+  var pick = [], wait = [], other = [];
+  order.forEach(function (k) {
+    var a = agg[k]; a.need = Math.round(a.per * qty * 1000) / 1000;
+    if (!a.parts) other.push(a);
+    else {
+      a.locs = a.parts.filter(function (p) { return p.loc; }).sort(locOrder);
+      (a.locs.length ? pick : wait).push(a);
+    }
+  });
+  // เส้นทางเดิน: ชั้นล่างขึ้นบน (L1→L8) · ช่อง 01→40
+  pick.sort(function (a, b) { return locOrder(a.locs[0], b.locs[0]); });
+  return { pick: pick, wait: wait, other: other };
+}
+function modelList() { return WHB ? Object.keys(WHB.models).sort() : []; }
+function suggestModels(q) {
+  var Q = wkey(q); if (!Q) return [];
+  var a = modelList().filter(function (m) { return wkey(m).indexOf(Q) >= 0; });
+  a.sort(function (x, y) { return (wkey(x).indexOf(Q) === 0 ? 0 : 1) - (wkey(y).indexOf(Q) === 0 ? 0 : 1) || x.localeCompare(y); });
+  return a.slice(0, 12);
+}
+function fmtQ(n) { return String(Math.round(n * 1000) / 1000); }
+function rackPickHtml(plan) {
+  var want = {}, got = {};
+  plan.pick.forEach(function (a) { a.locs.forEach(function (p) { want[p.loc] = 1; if (PK.done[a.key]) got[p.loc] = 1; }); });
+  var rows = LV_LIST.map(function (lv) {
+    var cells = '';
+    for (var c = 1; c <= MAX_COL; c++) {
+      var loc = 'H9-L' + lv + '-' + ('0' + c).slice(-2);
+      cells += '<div class="rc ' + (c > LEVELS[lv] ? 'void' : want[loc] ? (got[loc] ? 'pkd' : 'pk') : '') + '"></div>';
+    }
+    return '<div class="rack-row"><div class="rack-lv">L' + lv + '</div><div class="rack-cells">' + cells + '</div></div>';
+  }).join('');
+  return '<div class="rack pick-map">' + rows + rackAxis() + '</div>';
+}
+function pickRowHtml(a, i) {
+  var done = !!PK.done[a.key], p0 = (a.locs && a.locs[0]) || a.parts[0];
+  var locs = (a.locs || []).map(function (p) { return '<span class="pk-loc ' + lnCls(p) + '">' + esc(p.short || p.loc.replace(/^H9-/, '')) + '</span>'; }).join('');
+  return '<div class="pk-row' + (done ? ' done' : '') + '">' +
+    '<button class="pk-chk" data-pkdone="' + esc(a.key) + '" aria-label="หยิบแล้ว">' + (done ? '✔' : (i + 1)) + '</button>' +
+    '<button class="pk-body" data-pki="' + p0.i + '">' +
+      '<div class="pk-top">' + (locs || '<span class="pk-loc none">รอจัดพื้นที่</span>') + '<span class="pk-need">× ' + esc(fmtQ(a.need)) + ' <small>' + esc(a.unit || '') + '</small></span></div>' +
+      '<div class="pk-mid">' + imgTag(partImgId(p0), 160, 'pk-img') + '<div><b>' + esc(p0.code) + '</b> · ' + esc(p0.name) +
+      '<div class="small muted">' + esc(a.comp) + ' · ' + esc(fmtQ(a.per)) + '/ตัว' + (a.locs && a.locs.length > 1 ? ' · มี ' + a.locs.length + ' ช่อง หยิบช่องไหนก็ได้' : '') + '</div></div></div>' +
+    '</button></div>';
+}
+function renderPick() {
+  var M = PK.model && WHB && WHB.models[PK.model] ? PK.model : '';
+  var head = '<div class="search"><div class="search-wrap">' +
+      '<input id="pkModel" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="พิมพ์รุ่น เช่น QO3-250EZ30" value="' + esc(PK.model || '') + '">' +
+      '<button class="clear' + (PK.model ? '' : ' hidden') + '" id="pkClr" aria-label="ล้าง">✕</button></div>' +
+      '<div class="pk-qty"><input id="pkQty" type="number" inputmode="numeric" min="1" value="' + esc(PK.qty || 1) + '"><span>ตัว</span></div></div>' +
+    '<div class="np-sug" id="pkSug"></div>' +
+    '<div class="small muted pk-src">BOM จาก WHSYS · ' + (WHB ? modelList().length + ' รุ่น · อัปเดต ' + fmtTime(WHB.at) : (whLoading ? 'กำลังโหลด…' : 'ยังไม่ได้โหลด')) +
+      (whErr ? ' · <span style="color:var(--red)">โหลดไม่ได้: ' + esc(whErr) + '</span>' : '') + ' <button class="linkbtn" id="pkReload">🔄 โหลดใหม่</button></div>';
+  var body = '';
+  if (!WHB) body = '<div class="msg idle">' + (whLoading ? '⏳ กำลังโหลด BOM จาก WHSYS…' : 'ยังไม่มี BOM ในเครื่อง — ต่อเน็ตแล้วกด 🔄 โหลดใหม่') + '</div>';
+  else if (!M) body = '<div class="msg idle">เลือกรุ่นที่จะผลิต แล้วใส่จำนวน → แอปจะบอกว่าต้องไปหยิบ Part จาก <b>ช่องไหน เท่าไหร่</b> เรียงตามทางเดิน L1 → L8</div>';
+  else {
+    var plan = pickPlan(M, Math.max(1, +PK.qty || 1)), n = plan.pick.length + plan.wait.length;
+    var dn = plan.pick.concat(plan.wait).filter(function (a) { return PK.done[a.key]; }).length, pct = n ? Math.round(dn / n * 100) : 0;
+    body = '<div class="ck-prog pk-sum"><div class="pk-title"><b>' + esc(M) + '</b> × ' + esc(PK.qty) + ' ตัว</div>' +
+      '<div class="ck-bar"><i class="ok" style="width:' + pct + '%"></i></div>' +
+      '<div class="ck-nums"><span>หยิบแล้ว <b>' + dn + '</b>/' + n + ' รายการ</span><span>📍 ' + plan.pick.length + ' จากชั้นวาง</span>' +
+        (plan.wait.length ? '<span>⏳ รอจัดพื้นที่ ' + plan.wait.length + '</span>' : '') + '</div>' +
+      rackPickHtml(plan) +
+      '<div class="actions"><button class="btn primary" id="pkScan">📷 สแกนยืนยันที่หยิบ</button></div>' +
+      '<div class="actions"><button class="btn" id="pkCsv">⬇️ CSV</button><button class="btn" id="pkReset">↺ เริ่มนับใหม่</button></div></div>' +
+      '<div id="pkMsg"></div>' +
+      (plan.pick.length ? '<div class="count"><span>📍 หยิบจากชั้นวาง H9 (เรียงตามทางเดิน)</span></div>' + plan.pick.map(pickRowHtml).join('') : '') +
+      (plan.wait.length ? '<div class="count"><span>⏳ มีใน H9 แต่ยังรอจัดพื้นที่</span></div>' + plan.wait.map(function (a, i) { return pickRowHtml(a, plan.pick.length + i); }).join('') : '') +
+      (plan.other.length ? '<details class="pk-other"><summary>📦 ไม่มีในชั้นวาง H9 ' + plan.other.length + ' รายการ (หยิบที่อื่น)</summary>' +
+        plan.other.map(function (a) { return '<div class="pk-o"><b>' + esc(a.comp) + '</b> · ' + esc(a.desc) + '<span>× ' + esc(fmtQ(a.need)) + ' ' + esc(a.unit) + '</span></div>'; }).join('') + '</details>' : '');
+  }
+  $('main').innerHTML = head + body;
+  var mi = $('pkModel'), sug = $('pkSug');
+  function pickModel(m) { if (m !== PK.model) PK.done = {}; PK.model = m; savePick(); renderPick(); }
+  mi.oninput = function () {
+    $('pkClr').classList.toggle('hidden', !mi.value);
+    sug.innerHTML = suggestModels(mi.value).map(function (m) {
+      var n = WHB.models[m].length;
+      return '<button type="button" class="sug" data-pkm="' + esc(m) + '"><b>' + esc(m) + '</b> <span class="small muted">' + n + ' บรรทัดใน BOM</span></button>';
+    }).join('') || (mi.value.trim() && WHB ? '<div class="small muted">ไม่พบรุ่นนี้ใน BOM</div>' : '');
+    Array.prototype.forEach.call(sug.querySelectorAll('[data-pkm]'), function (b) { b.onclick = function () { pickModel(b.getAttribute('data-pkm')); }; });
+  };
+  mi.onkeydown = function (e) {
+    if (e.key !== 'Enter') return; e.preventDefault();
+    var s = suggestModels(mi.value), ex = modelList().filter(function (m) { return wkey(m) === wkey(mi.value); })[0];
+    if (ex || s.length) pickModel(ex || s[0]);
+  };
+  $('pkClr').onclick = function () { PK.model = ''; PK.done = {}; savePick(); renderPick(); setTimeout(function () { if ($('pkModel')) $('pkModel').focus(); }, 0); };
+  $('pkQty').onchange = function () { PK.qty = Math.max(1, Math.round(+this.value || 1)); savePick(); renderPick(); };
+  $('pkReload').onclick = function () {
+    loadWh(true).then(function () { toast('โหลด BOM แล้ว ' + modelList().length + ' รุ่น'); }, function () { toast('โหลด BOM ไม่ได้ — ใช้ข้อมูลเดิมในเครื่อง', 3000); }).then(function () { if (S.tab === 'pick') renderPick(); });
+    loadWhImg(true).catch(function () {});
+    renderPick();
+  };
+  if (!M) return;
+  var plan2 = pickPlan(M, Math.max(1, +PK.qty || 1));
+  Array.prototype.forEach.call(document.querySelectorAll('[data-pkdone]'), function (b) {
+    b.onclick = function () { var k = b.getAttribute('data-pkdone'); if (PK.done[k]) delete PK.done[k]; else PK.done[k] = Date.now(); savePick(); renderPick(); };
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-pki]'), function (b) {
+    b.onclick = function () { showDetail(PARTS[+b.getAttribute('data-pki')]); };
+  });
+  $('pkReset').onclick = function () { if (confirm('ล้างที่ติ๊กหยิบไว้ทั้งหมด?')) { PK.done = {}; savePick(); renderPick(); } };
+  $('pkCsv').onclick = function () {
+    var rows = [['ลำดับ', 'ช่อง', 'รหัส', 'ชื่อ', 'Component (BOM)', 'ต่อ 1 ตัว', 'ต้องหยิบ', 'หน่วย', 'หยิบแล้ว']], n = 0;
+    plan2.pick.concat(plan2.wait).forEach(function (a) {
+      var p = (a.locs && a.locs[0]) || a.parts[0];
+      rows.push([++n, (a.locs || []).map(function (x) { return x.loc; }).join(' / ') || 'รอจัดพื้นที่', p.code, p.name, a.comp, fmtQ(a.per), fmtQ(a.need), a.unit, PK.done[a.key] ? 'Y' : '']);
+    });
+    plan2.other.forEach(function (a) { rows.push(['', 'ไม่มีใน H9', '', a.desc, a.comp, fmtQ(a.per), fmtQ(a.need), a.unit, '']); });
+    downloadCsv('pick_' + M + '_x' + PK.qty + '.csv', rows);
+  };
+  $('pkScan').onclick = function () {
+    openCameraScanner(null, { title: 'สแกน Part ที่หยิบ — ' + M, status: pickCamStatus, onEach: pickScan });
+    onModalClose = (function (prev) { return function () { if (prev) prev(); renderPick(); }; })(onModalClose);
+  };
+}
+var PK_LAST = null;
+function pickScan(text) {
+  var plan = pickPlan(PK.model, Math.max(1, +PK.qty || 1)), r = resolveScan(text);
+  if (!plan) return 'err';
+  var items = plan.pick.concat(plan.wait), hit = null;
+  if (r) items.forEach(function (a) { if (!hit && a.parts.some(function (p) { return r.parts.indexOf(p) >= 0; })) hit = a; });
+  if (!hit) { PK_LAST = { ok: false, text: r ? r.parts[0].code + ' · ' + r.parts[0].name : text }; beep(false); }
+  else { PK.done[hit.key] = Date.now(); savePick(); PK_LAST = { ok: true, a: hit }; beep(true); }
+  if ($('camStatus')) $('camStatus').innerHTML = pickCamStatus();
+  return hit ? 'ok' : 'err';
+}
+function pickCamStatus() {
+  var plan = pickPlan(PK.model, Math.max(1, +PK.qty || 1)); if (!plan) return '';
+  var items = plan.pick.concat(plan.wait), dn = items.filter(function (a) { return PK.done[a.key]; }).length, L = PK_LAST, msg = '';
+  if (L && L.ok) { var p = (L.a.locs && L.a.locs[0]) || L.a.parts[0]; msg = '<div class="ck-res ok"><div class="h">✅ ' + esc(p.code) + ' × ' + esc(fmtQ(L.a.need)) + ' ' + esc(L.a.unit) + '</div>' + esc(p.name) + '</div>'; }
+  else if (L) msg = '<div class="ck-res err"><div class="h">❌ ไม่อยู่ในรายการเบิกรุ่นนี้</div>' + esc(L.text) + '</div>';
+  var next = items.filter(function (a) { return !PK.done[a.key]; })[0];
+  return msg + '<div class="center small muted">หยิบแล้ว ' + dn + '/' + items.length +
+    (next ? ' · ถัดไป: <b>' + esc(next.locs && next.locs[0] ? next.locs[0].loc : 'รอจัดพื้นที่') + '</b> × ' + esc(fmtQ(next.need)) : ' · 🎉 ครบแล้ว') + '</div>';
+}
+
+function downloadCsv(name, rows) {
+  var csv = '\ufeff' + rows.map(function (r) { return r.map(function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n');
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = name; document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 1000);
+}
+
 // ลิงก์ตรง: index.html#q=L3-05 หรือ #q=1005QT00456
 var hq = decodeURIComponent((location.hash.match(/[#&]q=([^&]*)/) || [])[1] || '');
 render();
@@ -2034,7 +2269,7 @@ window.addEventListener('offline', function () { updateNet(); if (S.tab === 'set
 if ('serviceWorker' in navigator && /^(https:|http:\/\/localhost)/.test(location.href)) {
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('sw.js').catch(function () { /* ไม่รองรับ → ใช้แบบออนไลน์ */ });
-    setTimeout(function () { loadBom(); if (!DM_NAMES) loadDm(); }, 2500); // BOM จากแอป PDA + รายชื่อ Material (เก็บไว้ใช้ตอนออฟไลน์ด้วย)
+    setTimeout(function () { loadBom(); if (!DM_NAMES) loadDm(); loadWhImg().then(function () { if (S.tab === 'search') renderResults(); }, function () {}); loadWh().catch(function () {}); }, 2500); // BOM จากแอป PDA + รายชื่อ Material (เก็บไว้ใช้ตอนออฟไลน์ด้วย)
     // ตอนมีเน็ต: โหลดตัวอ่านบาร์โค้ด (zxing / jsQR / ตัวกู้ QR) เก็บไว้ล่วงหน้า → สแกนด้วยกล้องได้แม้ออฟไลน์
     setTimeout(function () {
       if (navigator.onLine === false) return;
